@@ -18,6 +18,7 @@ function renderRow(item: ChatItem, autoplay: boolean) {
         <TimBubble
           emote={item.emote}
           dialog={item.dialog}
+          raw={item.raw}
           time={item.time}
           pills={item.pills}
           isDrive={item.isDrive}
@@ -28,6 +29,7 @@ function renderRow(item: ChatItem, autoplay: boolean) {
         <EliBubble
           emote={item.emote}
           dialog={item.dialog}
+          raw={item.raw}
           time={item.time}
           isDrive={item.isDrive}
           autoplay={autoplay}

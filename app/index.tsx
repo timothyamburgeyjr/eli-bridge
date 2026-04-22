@@ -166,6 +166,13 @@ export default function Main() {
         </View>
       )}
 
+      {status === "sending" && (
+        <View style={styles.assembleBanner}>
+          <ActivityIndicator size="small" color={C.emote} />
+          <Text style={{ color: C.emote, fontSize: 11 }}>Eli is thinking…</Text>
+        </View>
+      )}
+
       {errorMessage && (
         <View style={styles.errorBanner}>
           <Text style={{ color: C.red, fontSize: 11, flex: 1 }}>⚠ {errorMessage}</Text>

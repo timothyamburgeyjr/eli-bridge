@@ -3,22 +3,30 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
 import { Pill } from "@/components/common/PillButton";
 import { EliAvatar } from "@/components/common/EliAvatar";
-import { EmoteBubble } from "./EmoteBubble";
+import { FormattedBody } from "./FormattedBody";
 
 interface ContextPill {
   icon: string;
   label: string;
 }
 
+function composeRaw(emote: string | undefined, dialog: string): string {
+  if (emote && emote.trim()) return `_(*${emote.trim()}*)_ ${dialog}`;
+  return dialog;
+}
+
 interface TimProps {
-  emote: string;
+  emote?: string;
   dialog: string;
+  /** Full raw message (with any inline emotes). Takes precedence over emote + dialog. */
+  raw?: string;
   time: string;
   pills?: ContextPill[];
   isDrive?: boolean;
 }
 
-export function TimBubble({ emote, dialog, time, pills, isDrive }: TimProps) {
+export function TimBubble({ emote, dialog, raw, time, pills, isDrive }: TimProps) {
+  const body = raw ?? composeRaw(emote, dialog);
   return (
     <View style={[styles.row, { justifyContent: "flex-end", opacity: isDrive ? 0.7 : 1, marginBottom: isDrive ? 14 : 20 }]}>
       <View style={{ maxWidth: "78%", alignItems: "flex-end", gap: 4 }}>
@@ -38,8 +46,7 @@ export function TimBubble({ emote, dialog, time, pills, isDrive }: TimProps) {
             },
           ]}
         >
-          <EmoteBubble emote={emote} />
-          <Text style={styles.dialog}>{dialog}</Text>
+          <FormattedBody text={body} />
           {pills && pills.length > 0 && (
             <View style={styles.pillRow}>
               {pills.map((p, i) => (
@@ -57,13 +64,15 @@ export function TimBubble({ emote, dialog, time, pills, isDrive }: TimProps) {
 interface EliProps {
   emote?: string;
   dialog: string;
+  raw?: string;
   time: string;
   isDrive?: boolean;
   autoplay?: boolean;
 }
 
-export function EliBubble({ emote, dialog, time, isDrive, autoplay }: EliProps) {
+export function EliBubble({ emote, dialog, raw, time, isDrive, autoplay }: EliProps) {
   const [playing, setPlaying] = useState(false);
+  const body = raw ?? composeRaw(emote, dialog);
   return (
     <View style={[styles.row, { alignItems: "flex-end", gap: 8, opacity: isDrive ? 0.7 : 1, marginBottom: isDrive ? 14 : 20 }]}>
       <EliAvatar size={28} fontSize={12} />
@@ -84,8 +93,7 @@ export function EliBubble({ emote, dialog, time, isDrive, autoplay }: EliProps) 
             },
           ]}
         >
-          {emote ? <EmoteBubble emote={emote} /> : null}
-          <Text style={styles.dialog}>{dialog}</Text>
+          <FormattedBody text={body} />
           <View style={styles.eliFooter}>
             <Text style={{ fontSize: 10, color: C.muted }}>
               {autoplay ? "🔊" : "🔇"} Eli · {time}
@@ -112,7 +120,6 @@ export function EliBubble({ emote, dialog, time, isDrive, autoplay }: EliProps) 
 const styles = StyleSheet.create({
   row: { flexDirection: "row", width: "100%" },
   bubble: { borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11 },
-  dialog: { color: C.text, fontSize: 14, lineHeight: 23 },
   pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 8 },
   timestamp: { fontSize: 10, color: C.muted, paddingRight: 4 },
   eliFooter: {

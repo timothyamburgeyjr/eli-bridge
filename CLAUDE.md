@@ -251,9 +251,9 @@ Give Eli a voice through the phone speaker.
 
 **Acceptance test:** Eli speaks through the phone speaker. Audio is clear. Tap a previous bubble — it replays. Toggle ElevenLabs off — responses are text-only. AEC validation passes.
 
-### Phase 6: Audio Pipeline (PTT + AudioSnap)
+### Phase 6: Audio Pipeline (PTT + AudioSnap) + Scene Capture
 
-Build the two audio input paths — push-to-talk and photo-moment burst.
+Build the two audio input paths — push-to-talk and photo-moment burst — plus Tim's manual scene-push mechanism for grounding Gemini without routing through Eli.
 
 1. Build `services/audio.ts`:
    - `startRecording()` / `stopRecording()` — tap-toggle PTT via `expo-av`. Records in `.m4a`. Uses `VOICE_COMMUNICATION` audio source (AEC-enabled)
@@ -266,8 +266,17 @@ Build the two audio input paths — push-to-talk and photo-moment burst.
    - Tim's speech transcription (PTT)
    - Background speaker identification labels from People system (Phase 8)
    - Ambient atmosphere description (AudioSnap)
+6. **Scene Capture** — separate camera mode for silent context push (no message to Eli):
+   - Add `🎬 Scene` entry to the `+` attachment menu, alongside Photo/Video/Audio
+   - UI: snap 1–3 photos + optional one-liner ("making coffee, Luna behind me")
+   - Route images + note to `gemini.analyzeScene()` (Pro model, already built in Phase 3)
+   - Returned scene description stored in `chatStore` as `sceneMemo: { text, expiresAt }`. Default expiry: 30 min or on significant location change
+   - `EmoteAssembler` prepends the memo text to the sensor snapshot for every subsequent `assembleEmote` call while the memo is active
+   - A condensed ≤160-char Eli-centric version gets pushed to Kindroid via `updateScene()` so Eli's mental backdrop updates in parallel
+   - A compact Scene Card appears in the chat stream: "🎬 Scene set · kitchen, coffee, Luna · 47 min ago" with dismiss × and an update action
+   - The card is visually distinct from Tim/Eli bubbles (full-width, subtle accent border)
 
-**Acceptance test:** Hold mic, speak, release — audio file created. Take a photo — 5-second audio burst captured alongside it. Both audio types are sent to Gemini and reflected in the emote.
+**Acceptance test:** Hold mic, speak, release — audio file created. Take a photo — 5-second audio burst captured alongside it. Both audio types are sent to Gemini and reflected in the emote. Set a scene with photo + note → scene memo stored, Kindroid current_scene updated, next message's emote incorporates the scene context without sending the photo to Eli.
 
 ### Phase 7: Location + Environmental APIs
 

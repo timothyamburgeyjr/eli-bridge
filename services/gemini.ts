@@ -81,6 +81,11 @@ export interface ParsedMessage {
 
 const EMOTE_RE = /^_\(\*\s*([\s\S]*?)\s*\*\)_\s*/;
 
+/**
+ * Parse a Bridge-format message into its leading emote + remaining body.
+ * Works for both Gemini-composed outgoing messages and Eli's incoming replies —
+ * both use the `_(*emote*)_ dialog` convention.
+ */
 export function parseAssembledMessage(text: string): ParsedMessage {
   const raw = text.trim();
   const m = raw.match(EMOTE_RE);

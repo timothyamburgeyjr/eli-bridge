@@ -4,8 +4,10 @@ import type { SensorSnapshot } from "@/types";
 import type { ChatItem } from "@/components/chat/ChatStream";
 import { EmoteAssembler } from "@/session/EmoteAssembler";
 import { STUB_SENSOR_SNAPSHOT } from "@/session/sensorStub";
+import { parseAssembledMessage } from "@/services/gemini";
+import { sendMessage as kindroidSend } from "@/services/kindroid";
 
-export type SendStatus = "idle" | "assembling" | "error";
+export type SendStatus = "idle" | "assembling" | "sending" | "error";
 
 interface ChatState {
   messages: ChatItem[];
@@ -35,17 +37,15 @@ function buildHistory(messages: ChatItem[]): Content[] {
   const history: Content[] = [];
   for (const m of messages) {
     if (m.from === "tim") {
-      // Each prior Tim turn was built by Gemini, so role is "user" with the same input shape
       history.push({
         role: "user",
         parts: [{ text: `[TIM'S INPUT]\n${m.dialog}` }],
       });
     } else if (m.from === "eli") {
-      // Phase 3: Eli doesn't respond yet, so we won't have "model" turns.
-      // When Kindroid lands in Phase 4 this becomes Eli's dialog.
+      const combined = m.emote ? `_(*${m.emote}*)_ ${m.dialog}` : m.dialog;
       history.push({
         role: "model",
-        parts: [{ text: m.dialog }],
+        parts: [{ text: combined }],
       });
     }
   }
@@ -115,45 +115,57 @@ export const useChat = create<ChatState>((set, get) => ({
     });
 
     try {
+      // ── Step 1: Gemini assembles the emote + combined message ───────
       const sensors = state.sensorOverride ?? STUB_SENSOR_SNAPSHOT;
       const history = buildHistory(state.messages);
 
-      const result = await assembler.assemble({
+      const assembled = await assembler.assemble({
         sensors,
         timDialog: text,
         history,
       });
 
-      // Replace the pending Tim bubble with the assembled emote + body
-      const finalized: ChatItem = {
+      const finalizedTim: ChatItem = {
         id: timMsgId,
         from: "tim",
         time: timeString(),
-        emote: result.leadingEmote,
-        dialog: result.body || text,
+        emote: assembled.leadingEmote,
+        dialog: assembled.body || text,
+        raw: assembled.raw,
       };
 
-      // Phase 3 placeholder Eli response — real Eli arrives in Phase 4
-      const eliStub: ChatItem = {
+      // Surface the Tim message + update status to "sending" for the Kindroid wait
+      set({
+        messages: [...get().messages.slice(0, -1), finalizedTim],
+        status: "sending",
+        lastEmoteChars: assembled.leadingEmote.length,
+        lastFilteredContext: contextPreview(assembled.filteredSensors),
+      });
+
+      // ── Step 2: Kindroid relays to Eli and returns his reply ────────
+      const kindroidMessage = assembled.raw;
+      const eliRaw = await kindroidSend(kindroidMessage);
+      const eliParsed = parseAssembledMessage(eliRaw);
+
+      const eliMsg: ChatItem = {
         id: `eli-${Date.now()}`,
         from: "eli",
         time: timeString(),
-        dialog: "(Eli response pending — Phase 4 wires up Kindroid.)",
+        emote: eliParsed.leadingEmote || undefined,
+        dialog: eliParsed.body || eliParsed.raw,
+        raw: eliParsed.raw,
       };
 
       set({
-        messages: [...get().messages.slice(0, -1), finalized, eliStub],
+        messages: [...get().messages, eliMsg],
         status: "idle",
-        lastEmoteChars: result.leadingEmote.length,
-        lastFilteredContext: contextPreview(result.filteredSensors),
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      // Keep the Tim bubble (context + emote intact), just surface the error
       set({
         status: "error",
         errorMessage: msg,
-        // remove the pending Tim bubble on error
-        messages: get().messages.filter((m) => m.id !== timMsgId),
       });
     }
   },

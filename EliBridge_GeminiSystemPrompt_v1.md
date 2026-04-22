@@ -361,7 +361,7 @@ If any check fails, revise before sending.
 
 ## Implementation Notes
 
-**Session initialization:** At session start, load the Wisdom Index (Kindroid /journal-create memories) and the last session archive summary. Prepend them to this system prompt as context. The Wisdom Index gives Gemini continuity across sessions; the archive summary provides "last time we..." context.
+**Session initialization:** At session start, load Eli's biography from Obsidian (`08 - Elias Reed/biography.md`) and prepend it to this system prompt as context. This gives Gemini static character grounding so emotes reference Eli's background naturally. Eli's cross-session continuity (what he remembers of prior conversations) is handled by Kindroid's native chat memory, not by anything this Bridge injects — so don't try to recap "last time we…" context from your side. If Tim hasn't mentioned it in this session and Kindroid hasn't surfaced it, treat it as unknown.
 
 **Freshness ledger implementation:** The ledger is a JSON object maintained in Gemini's chat history. After each message is sent to Kindroid, append a ledger update:
 

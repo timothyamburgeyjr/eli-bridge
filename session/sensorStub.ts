@@ -1,8 +1,11 @@
 import type { SensorSnapshot } from "@/types";
 
 /**
- * Hardcoded sensor snapshot used for Phase 3 testing.
- * Phase 7 replaces this with live data from Location/Weather/NowPlaying/Sensors services.
+ * Hardcoded sensor snapshot used for dev-at-desk testing.
+ * Assumes Tim is at his real home address while testing. Phase 7 replaces this
+ * with live data from Location/Weather/NowPlaying/Sensors services. Phase 6
+ * Scene Capture adds a manual scene-memo layer for rich zone context on top of
+ * whatever sensors provide.
  */
 export const STUB_SENSOR_SNAPSHOT: SensorSnapshot = {
   location: {
@@ -10,7 +13,7 @@ export const STUB_SENSOR_SNAPSHOT: SensorSnapshot = {
     longitude: -83.795,
     accuracy: 10,
     timestamp: Date.now(),
-    placeName: "Home · Lynchburg OH",
+    placeName: "Home · 1550 Weisflock Rd, Lynchburg OH",
     placeType: "residential",
   },
   weather: {
@@ -33,7 +36,8 @@ export function snapshotToText(s: SensorSnapshot): string {
 
   if (s.location) {
     const where = s.location.placeName ?? `${s.location.latitude}, ${s.location.longitude}`;
-    parts.push(`Location: ${where}${s.location.placeType ? ` (${s.location.placeType})` : ""}`);
+    const typeBit = s.location.placeType ? ` (${s.location.placeType})` : "";
+    parts.push(`Location: ${where}${typeBit}`);
   }
   if (s.weather) {
     const bits = [`${Math.round(s.weather.temp)}°F`, s.weather.conditions];
