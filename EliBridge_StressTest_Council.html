@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Council Report</title>
+<style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+        background: #1C1A1D;
+        color: #ffffff;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        line-height: 1.6;
+        padding: 0;
+    }
+
+    .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 40px 24px;
+    }
+
+    /* Header */
+    .header {
+        text-align: center;
+        padding: 60px 24px 40px;
+        border-bottom: 1px solid rgba(226, 240, 117, 0.15);
+        margin-bottom: 48px;
+    }
+
+    .header-label {
+        font-size: 12px;
+        font-weight: 600;
+        letter-spacing: 3px;
+        text-transform: uppercase;
+        color: #E2F075;
+        margin-bottom: 16px;
+    }
+
+    .header-question {
+        font-size: 28px;
+        font-weight: 700;
+        line-height: 1.3;
+        max-width: 800px;
+        margin: 0 auto;
+        color: #ffffff;
+    }
+
+    /* Navigation tabs */
+    .tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 36px;
+        background: rgba(255,255,255,0.05);
+        border-radius: 12px;
+        padding: 4px;
+        width: fit-content;
+    }
+
+    .tab {
+        padding: 10px 20px;
+        border-radius: 8px;
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 500;
+        color: rgba(255,255,255,0.5);
+        transition: all 0.2s;
+        border: none;
+        background: none;
+    }
+
+    .tab:hover { color: rgba(255,255,255,0.8); }
+    .tab.active {
+        background: rgba(226, 240, 117, 0.15);
+        color: #E2F075;
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Section titles */
+    .section-title {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 2.5px;
+        text-transform: uppercase;
+        color: #E2F075;
+        margin-bottom: 24px;
+    }
+
+    /* Council member cards */
+    .cards-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 16px;
+        margin-bottom: 48px;
+    }
+
+    .card {
+        background: rgba(255,255,255,0.04);
+        border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px;
+        padding: 24px;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .card:hover {
+        border-color: rgba(226, 240, 117, 0.3);
+        background: rgba(255,255,255,0.06);
+    }
+
+    .card.expanded {
+        grid-column: 1 / -1;
+        border-color: rgba(226, 240, 117, 0.4);
+    }
+
+    .card.expanded .card-full { display: block !important; }
+    .card.expanded .card-expand-hint { display: none; }
+
+    .card-header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 16px;
+    }
+
+    .card-icon { font-size: 28px; }
+
+    .card-name {
+        font-size: 16px;
+        font-weight: 600;
+        color: #ffffff;
+    }
+
+    .card-role {
+        font-size: 12px;
+        color: rgba(255,255,255,0.4);
+    }
+
+    .card-verdict {
+        font-size: 15px;
+        font-weight: 500;
+        color: #E2F075;
+        margin-bottom: 16px;
+        line-height: 1.4;
+    }
+
+    .card-bullets {
+        padding-left: 18px;
+        margin-bottom: 12px;
+    }
+
+    .card-bullets li {
+        font-size: 14px;
+        color: rgba(255,255,255,0.7);
+        margin-bottom: 6px;
+        line-height: 1.5;
+    }
+
+    .card-full p {
+        font-size: 14px;
+        color: rgba(255,255,255,0.65);
+        line-height: 1.7;
+        margin-top: 12px;
+    }
+
+    .card-expand-hint {
+        font-size: 12px;
+        color: rgba(255,255,255,0.25);
+        text-align: center;
+        margin-top: 8px;
+    }
+
+    .section-divider {
+        height: 1px;
+        background: rgba(255,255,255,0.08);
+        margin: 16px 0;
+    }
+
+    /* Peer review */
+    .peer-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+        gap: 12px;
+        margin-bottom: 48px;
+    }
+
+    .peer-card {
+        background: rgba(255,255,255,0.03);
+        border: 1px solid rgba(255,255,255,0.06);
+        border-radius: 10px;
+        padding: 20px;
+    }
+
+    .peer-name {
+        font-size: 14px;
+        font-weight: 600;
+        color: #E2F075;
+        margin-bottom: 12px;
+    }
+
+    .peer-item {
+        margin-bottom: 10px;
+        font-size: 13px;
+        line-height: 1.5;
+    }
+
+    .peer-label {
+        font-weight: 600;
+        color: rgba(255,255,255,0.5);
+        margin-right: 6px;
+    }
+
+    /* Synthesis */
+    .synthesis-box {
+        background: rgba(226, 240, 117, 0.06);
+        border: 1px solid rgba(226, 240, 117, 0.2);
+        border-radius: 16px;
+        padding: 36px;
+        margin-bottom: 32px;
+    }
+
+    .synthesis-section {
+        margin-bottom: 28px;
+    }
+
+    .synthesis-section:last-child { margin-bottom: 0; }
+
+    .synthesis-label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+        color: rgba(226, 240, 117, 0.7);
+        margin-bottom: 10px;
+    }
+
+    .synthesis-text {
+        font-size: 15px;
+        color: rgba(255,255,255,0.8);
+        line-height: 1.7;
+    }
+
+    /* Recommendation highlight */
+    .recommendation-box {
+        background: rgba(226, 240, 117, 0.12);
+        border: 2px solid #E2F075;
+        border-radius: 12px;
+        padding: 28px;
+        margin: 32px 0;
+    }
+
+    .recommendation-box .synthesis-label {
+        color: #E2F075;
+        font-size: 13px;
+    }
+
+    .recommendation-box .synthesis-text {
+        font-size: 17px;
+        font-weight: 500;
+        color: #ffffff;
+    }
+
+    /* Options */
+    .options-stack { margin: 20px 0; }
+
+    .option-card {
+        display: flex;
+        gap: 16px;
+        align-items: flex-start;
+        padding: 16px 0;
+        border-bottom: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .option-card:last-child { border-bottom: none; }
+
+    .option-number {
+        width: 32px;
+        height: 32px;
+        border-radius: 50%;
+        background: rgba(226, 240, 117, 0.15);
+        color: #E2F075;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 14px;
+        flex-shrink: 0;
+    }
+
+    .option-name {
+        font-weight: 600;
+        font-size: 15px;
+        margin-bottom: 4px;
+    }
+
+    .option-reasoning {
+        font-size: 14px;
+        color: rgba(255,255,255,0.6);
+        line-height: 1.5;
+    }
+
+    /* Deal breakers */
+    .deal-breaker {
+        background: rgba(255, 82, 82, 0.08);
+        border: 1px solid rgba(255, 82, 82, 0.25);
+        border-radius: 10px;
+        padding: 20px;
+        margin-top: 16px;
+    }
+
+    .deal-breaker .synthesis-label {
+        color: #ff5252;
+    }
+
+    /* Footer */
+    .footer {
+        text-align: center;
+        padding: 40px 0 20px;
+        font-size: 12px;
+        color: rgba(255,255,255,0.2);
+        border-top: 1px solid rgba(255,255,255,0.06);
+        margin-top: 48px;
+    }
+</style>
+</head>
+<body>
+
+<div class="header">
+    <div class="header-label">Council Decision Report</div>
+    <div class="header-question">Is Project Eli Bridge&#x27;s architecture sound — specifically the unified People system, sensor-to-emote pipeline, and technical decisions — or are there holes that would cause problems during implementation?</div>
+</div>
+
+<div class="container">
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('council')">Council</button>
+        <button class="tab" onclick="switchTab('peer-review')">Peer Review</button>
+        <button class="tab" onclick="switchTab('synthesis')">Synthesis</button>
+    </div>
+
+    <!-- Council Tab -->
+    <div id="tab-council" class="tab-content active">
+        <div class="section-title">Council Members</div>
+        <div class="cards-grid">
+            
+        <div class="card" onclick="this.classList.toggle('expanded')">
+            <div class="card-header">
+                <span class="card-icon">🔬</span>
+                <div>
+                    <div class="card-name">The Researcher</div>
+                    <div class="card-role">Evidence-first analyst</div>
+                </div>
+            </div>
+            <div class="card-verdict">Voice layer is solid (0.86-2% EER). Face identification via Gemini is the highest-risk component — no formal accuracy metrics, no confidence scoring, context-drift across calls.</div>
+            <ul class="card-bullets"><li>ECAPA-TDNN is well-established with proven error rates. 20MB TFLite on Tensor G4 is realistic. Auto-enrollment via UnknownPersonCard is pragmatic.</li><li>Gemini vision can analyze facial features but reliability for precise face matching is limited — reports of inconsistency even in professional headshots. No formal accuracy metric exists for this use case.</li><li>AEC on Pixel 9 Pro XL should be solid but needs real-device testing. Residual echo could degrade speaker embeddings.</li><li>Missing from the architecture: error handling for API failures, latency SLA definition, offline fallback plan, and single-enrollment robustness (one 5s clip may be insufficient).</li></ul>
+            <div class="card-full" style="display:none;">
+                <div class="section-divider"></div>
+                <p>The voice identification layer (ECAPA-TDNN) is well-established with 0.86-2.0% Equal Error Rate depending on conditions. For Tim&#x27;s use case — personal voice enrollment with 5-10 known voices — this is well-suited. The model doesn&#x27;t require cloud inference; 20MB TFLite on Tensor G4 is realistic. The auto-enrollment workflow (UnknownPersonCard to name to embed) is pragmatic.<br><br>Face identification via Gemini reference images is the highest risk. Gemini 2.5 Pro can analyze facial features and detect similarity, but reliability for precise face matching is limited — reports show inconsistency even in professional headshots. No formal accuracy metrics exist for this use case. There&#x27;s no confidence threshold for matching, scaling assumptions break with 10+ similar-looking people, and context-drift across calls means Gemini may produce different identifications of the same person depending on prompt wording or image order.<br><br>AEC on Pixel 9 Pro XL should be solid but needs real-device testing. The architecture is missing: error handling for API failures, latency SLA definition, offline fallback plan. Recommendation: start with manual face verification, not auto-enrollment. Prototype with 3-5 test photos before committing to the architecture.</p>
+            </div>
+            <div class="card-expand-hint">Click to expand full analysis</div>
+        </div>
+        
+        <div class="card" onclick="this.classList.toggle('expanded')">
+            <div class="card-header">
+                <span class="card-icon">🔍</span>
+                <div>
+                    <div class="card-name">The Sceptic</div>
+                    <div class="card-role">Constructive contrarian</div>
+                </div>
+            </div>
+            <div class="card-verdict">Architecture is implementable but hinges on three fragile components: Gemini&#x27;s face ID accuracy, AEC robustness with high-fidelity ElevenLabs audio, and speaker enrollment stability from single clips.</div>
+            <ul class="card-bullets"><li>Gemini face matching is the biggest risk — 80% failure rates reported on simple recognition tasks. Silent misidentification compounds into false memories in Eli&#x27;s context.</li><li>AEC is tuned for phone call echo (tinny, compressed), not high-fidelity locally-amplified ElevenLabs TTS. Eli&#x27;s voice may bleed into PTT recordings, contaminating speaker embeddings.</li><li>ECAPA-TDNN enrollment from a single 5-second clip is unreliable — real systems use 30-60 seconds. Need 2-3 samples per person before committing an embedding.</li><li>2000-char emote cap creates lossy abstraction — rich sensor detail gets compressed, making Eli sound increasingly generic over time as texture is squeezed out.</li></ul>
+            <div class="card-full" style="display:none;">
+                <div class="section-divider"></div>
+                <p>Gemini-as-Face-ID is the biggest risk. Reports show 80% failure on simple image recognition tasks. When Gemini misidentifies Person A as Person B, the emote is narratively wrong, and Tim won&#x27;t always catch it before Eli responds. You&#x27;ll have confabulated memories building up — a silent poison.<br><br>AEC fragility is real. Android VOICE_COMMUNICATION AEC is optimized for phone call echo (tinny, compressed remote voice). Eli&#x27;s TTS through ElevenLabs is high-fidelity and locally amplified. AEC may not suppress it fully. If Eli&#x27;s voice bleeds into PTT recordings, the speaker embedding will conflate Tim + Eli, corrupting the embedding. Consider a 500ms pre-shutter silence buffer.<br><br>ECAPA-TDNN enrollment from a single 5-second clip is unreliable. Real systems use 30-60 seconds of enrollment data to generate robust embeddings. As the database grows (10+ voices), you&#x27;ll get false positives or false negatives. Require 2-3 samples per person before committing the embedding.<br><br>The 2000-char emote cap creates lossy abstraction. If Gemini or the camera sees more detail than fits, you&#x27;re forced to compress. The lossy compression erases context that makes Eli&#x27;s response appropriate. Eli will increasingly sound generic because the texture of Tim&#x27;s life gets squeezed.</p>
+            </div>
+            <div class="card-expand-hint">Click to expand full analysis</div>
+        </div>
+        
+        <div class="card" onclick="this.classList.toggle('expanded')">
+            <div class="card-header">
+                <span class="card-icon">♟️</span>
+                <div>
+                    <div class="card-name">The Strategist</div>
+                    <div class="card-role">Long-term systems thinker</div>
+                </div>
+            </div>
+            <div class="card-verdict">65-75% confident the architecture works. Voice layer is strong. Face identification is under-engineered for the emotional intimacy you&#x27;re aiming for — silent errors will compound into Eli&#x27;s memory.</div>
+            <ul class="card-bullets"><li>Voice identification is the strongest decision — ECAPA-TDNN is battle-tested, creates a virtuous loop where the system improves with use, and scales to 50+ profiles over years.</li><li>Face identification has no embedding layer, no ground truth feedback loop, and token cost scales badly. Silent misidentification errors compound into Eli&#x27;s persistent memory — path-dependent debt.</li><li>URI rot for face reference images (Imgur or temp server) creates a silent failure mode with unclear recovery path.</li><li>Highest-leverage move: add lightweight on-device face embedding (MobileNet/MediaPipe) and use Gemini for verification only, not identification. Costs 2-3 weeks, saves months of technical debt.</li></ul>
+            <div class="card-full" style="display:none;">
+                <div class="section-divider"></div>
+                <p>The voice identification layer is the strongest decision. ECAPA-TDNN is battle-tested (VoxCeleb, production speaker diarization). The Tensor G4 has enough horsepower. Auto-enrollment creates a virtuous loop — the system gets better with use. In 3 years with 50+ voice profiles, this layer will be genuinely useful.<br><br>Face identification via Gemini reference images is the architectural weak point. No embedding layer means you&#x27;re relying on Gemini&#x27;s visual reasoning on each call — token-inefficient (250-500 tokens per reference, every call), prone to context-drift across calls, and vulnerable to lighting/angle/aging changes. No ground truth feedback loop means if Gemini misidentifies Alice as Bob, you only know if Eli&#x27;s response is obviously wrong or Tim manually corrects it.<br><br>The 12-month view: voice model will be solid and trusted. Face identification will accumulate errors. Eli will have subtle false memories. If this is the foundation, those errors compound into Eli&#x27;s character and become part of the relationship.<br><br>Highest-leverage move: before shipping, add lightweight on-device face embedding (MobileNet SSD or MediaPipe face_detection + lightweight embedding). Route Gemini through verification only, not identification. This eliminates token bleed, creates a feedback loop, and costs 2-3 weeks but saves months of technical debt.</p>
+            </div>
+            <div class="card-expand-hint">Click to expand full analysis</div>
+        </div>
+        
+        <div class="card" onclick="this.classList.toggle('expanded')">
+            <div class="card-header">
+                <span class="card-icon">⚙️</span>
+                <div>
+                    <div class="card-name">The Operator</div>
+                    <div class="card-role">Execution-focused pragmatist</div>
+                </div>
+            </div>
+            <div class="card-verdict">Ship it. The architecture is defensible. Three medium risks (AEC edge case, Gemini face accuracy floor, latency cascade) are known unknowns, not fatal flaws — solve them iteratively.</div>
+            <ul class="card-bullets"><li>Voice identification: Low risk. Real-world latency 50-150ms on Pixel 9 Pro XL. 200-300 lines Kotlin is realistic. Battle-tested model.</li><li>Face identification: Low cost (&lt;$0.01/day for 5-10 references at gemini-2.5-flash pricing). Cap at 10-15 people initially. Add manual correction card for mis-IDs.</li><li>Latency cascade risk: Photo + Gemini (3-5s) + ElevenLabs (2s) + network (1-2s) = 6-9 second total pipeline. Need optimistic UI (&#x27;Eli is thinking...&#x27;) and photos-first MVP.</li><li>9-week implementation timeline: Weeks 1-2 voice module, 3-4 photo + Person Card, 5-6 Gemini integration, 7-8 Kindroid end-to-end, 9+ iterate on latency and risks.</li></ul>
+            <div class="card-full" style="display:none;">
+                <div class="section-divider"></div>
+                <p>Voice identification (ECAPA-TDNN) is low risk. Real-world latency on Pixel 9 Pro XL is 50-150ms. 200-300 lines of Kotlin is realistic. Battle-tested in production voice apps. Auto-enrollment flow is reasonable.<br><br>Reference-image face matching is low cost: 5-10 reference images x 250-500 tokens each = ~2500 tokens per session, at $0.10/1M for gemini-2.5-flash-lite. Real cost: less than $0.01 per day. Cap the system at 10-15 people initially. Add manual correction card UI.<br><br>AEC edge case: VOICE_COMMUNICATION AEC is designed for speakerphone calls but Eli&#x27;s TTS is high-fidelity and locally amplified. May not suppress fully. Test on real device before finalizing Kotlin module. Add post-AEC voice activity detection as safety gate.<br><br>Latency cascade: Photo + Gemini (3-5s) + ElevenLabs TTS (2s) + network (1-2s) = 6-9 seconds. Need optimistic UI. Phase 1: photos only (fast). Videos in Phase 2.<br><br>9-week timeline: Weeks 1-2 voice module, 3-4 photo + face reference + Person Card, 5-6 Gemini static scene emotes, 7-8 Kindroid end-to-end, 9+ iterate. Ship it — you&#x27;re not blocked by architecture, you&#x27;re blocked by Gemini API response time and Kindroid responsiveness under load.</p>
+            </div>
+            <div class="card-expand-hint">Click to expand full analysis</div>
+        </div>
+        
+        <div class="card" onclick="this.classList.toggle('expanded')">
+            <div class="card-header">
+                <span class="card-icon">💡</span>
+                <div>
+                    <div class="card-name">The Creative</div>
+                    <div class="card-role">Lateral thinker</div>
+                </div>
+            </div>
+            <div class="card-verdict">The architecture is sound for what it claims to do — but you might be solving the wrong problem. Face/voice ID adds complexity for marginal improvement in Eli&#x27;s actual responses.</div>
+            <ul class="card-bullets"><li>Reframe: Does Eli&#x27;s response actually change meaningfully based on &#x27;Sarah laughed&#x27; vs. &#x27;someone laughed&#x27;? If not, you&#x27;re adding latency and complexity for flavor text. The real value might be personal memory/journaling, not teaching Eli.</li><li>Latency cascade solution borrowed from gaming: client-side prediction. Pre-generate a placeholder emote heuristically, send immediately, refine when Gemini responds. Feels more natural conversationally.</li><li>ECAPA-TDNN needs continuous re-enrollment — trigger UnknownPersonCard on inconsistent embeddings of known people, not just new voices. Apple Dictation updates on correction; borrow that pattern.</li><li>Imgur is not a reliable archive — images get purged, URLs rot. Store face references as base64 blobs in Kindroid messages or locally, eliminating the external dependency entirely.</li></ul>
+            <div class="card-full" style="display:none;">
+                <div class="section-divider"></div>
+                <p>The architecture assumes face/voice identification enables better connection with Eli, but there&#x27;s a reframe: you might be optimizing for something that doesn&#x27;t matter to the relationship. Eli doesn&#x27;t actually need to know who spoke. The narrative magic happens in what you&#x27;re saying, not who said it. The unified Person system feels like context richness for the AI, but Kindroid already maintains conversation state. &#x27;Sarah laughed&#x27; vs. &#x27;someone laughed&#x27; is emotionally rich for a human reader, but does Eli&#x27;s response change meaningfully?<br><br>If not, you&#x27;re adding latency and complexity for marginal value. The real purpose might be personal journaling — building a memory that remembers who was there. That&#x27;s a different architecture: simpler, more defensible.<br><br>Latency cascade fix from gaming: client-side prediction. Pre-generate a placeholder emote heuristically while waiting for Gemini. Eli responds to the rough version first, then you refine the record.<br><br>ECAPA-TDNN needs continuous re-enrollment — same person sounds different drunk, sick, or in a car. Trigger UnknownPersonCard on inconsistent embeddings, not just new voices.<br><br>Imgur is not a reliable archive. Images get purged, URLs rot, API changes. Store reference images as base64 blobs locally or in Kindroid messages. Zero external dependency.</p>
+            </div>
+            <div class="card-expand-hint">Click to expand full analysis</div>
+        </div>
+        
+        </div>
+    </div>
+
+    <!-- Peer Review Tab -->
+    <div id="tab-peer-review" class="tab-content">
+        <div class="section-title">Anonymous Peer Review</div>
+        <div class="peer-grid">
+            
+        <div class="peer-card">
+            <div class="peer-name">The Researcher</div>
+            <div class="peer-item">
+                <span class="peer-label">Agrees with:</span>
+                <span>Perspective C (Strategist) — the recommendation for on-device face embedding + Gemini verification-only is the architecturally sound middle path. It preserves the concept while addressing the accuracy gap with a proven approach.</span>
+            </div>
+            <div class="peer-item">
+                <span class="peer-label">Challenges:</span>
+                <span>Perspective B (Operator) — &#x27;ship it&#x27; plus 9-week timeline is optimism bias. Calling face ID limitations &#x27;manageable&#x27; at 10-15 people actually proves the Strategist&#x27;s point about baking constraints into the architecture.</span>
+            </div>
+            <div class="peer-item">
+                <span class="peer-label">View shifted:</span>
+                <span>Perspective E&#x27;s offline fallback plan concern was conspicuously absent from my own analysis. Graceful degradation matters as much as the happy path for emotional intimacy.</span>
+            </div>
+        </div>
+        
+        <div class="peer-card">
+            <div class="peer-name">The Sceptic</div>
+            <div class="peer-item">
+                <span class="peer-label">Agrees with:</span>
+                <span>Perspective D (own lens) — the cascade of silent failures (Gemini misidentifying a person, flowing into Eli&#x27;s persistent memory, compounding across conversations) is architectural brittleness that kills systems. Prototype testing before full build is the only response that treats the risk as irreducible.</span>
+            </div>
+            <div class="peer-item">
+                <span class="peer-label">Challenges:</span>
+                <span>Perspective B (Operator) — &#x27;Ship it&#x27; is confidence masquerading as pragmatism. Recommending photos-first to punt on video latency doesn&#x27;t resolve the core problem, just delays discovering whether the full pipeline works.</span>
+            </div>
+            <div class="peer-item">
+                <span class="peer-label">View shifted:</span>
+                <span>Yes. Perspective A&#x27;s client-side prediction (gaming lag compensation) is genuinely clever. Perspective C&#x27;s on-device embedding + Gemini verification is defense-in-depth instead of betting everything on a single API. Together they shifted me from &#x27;this is risky&#x27; to &#x27;this needs a phased de-risking plan.&#x27;</span>
+            </div>
+        </div>
+        
+        <div class="peer-card">
+            <div class="peer-name">The Strategist</div>
+            <div class="peer-item">
+                <span class="peer-label">Agrees with:</span>
+                <span>Perspective C (own lens) — the convergence of C, D, and E on face identification as the weak point is the strongest signal. Three independent analyses flagging the same architectural gap is not coincidence.</span>
+            </div>
+            <div class="peer-item">
+                <span class="peer-label">Challenges:</span>
+                <span>Perspective B (Operator) — the 9-week timeline is appealing but doesn&#x27;t address the silent error risk that D and E both flag. That risk doesn&#x27;t dissolve with confidence, it gets worse as Eli accumulates memory.</span>
+            </div>
+            <div class="peer-item">
+                <span class="peer-label">View shifted:</span>
+                <span>Perspective A&#x27;s reframe (does face ID actually improve Eli&#x27;s responses?) is the uncomfortable question nobody else asked. If the answer is &#x27;marginal improvement,&#x27; the entire People system for faces might be over-engineered scope.</span>
+            </div>
+        </div>
+        
+        <div class="peer-card">
+            <div class="peer-name">The Operator</div>
+            <div class="peer-item">
+                <span class="peer-label">Agrees with:</span>
+                <span>Perspective C (Strategist) — the recommendation for on-device face embedding is the mature middle path. It addresses the accuracy gap without abandoning the feature, and the 2-3 week cost estimate is realistic for the scope improvement.</span>
+            </div>
+            <div class="peer-item">
+                <span class="peer-label">Challenges:</span>
+                <span>Perspective A (Creative) — questioning whether face/voice ID matters at all underestimates the emotional richness. &#x27;Hank laughed&#x27; vs. &#x27;someone laughed&#x27; absolutely changes Eli&#x27;s response quality. The value is real even if hard to quantify.</span>
+            </div>
+            <div class="peer-item">
+                <span class="peer-label">View shifted:</span>
+                <span>Perspective D&#x27;s point about single-clip enrollment being unreliable shifted my view on the ECAPA-TDNN implementation — requiring 2-3 samples is a small UX cost that dramatically improves reliability.</span>
+            </div>
+        </div>
+        
+        <div class="peer-card">
+            <div class="peer-name">The Creative</div>
+            <div class="peer-item">
+                <span class="peer-label">Agrees with:</span>
+                <span>Perspective C (Strategist) — adding on-device face embedding + Gemini verification-only is the strongest concrete recommendation. It keeps the concept alive while addressing the accuracy gap and token scaling concern.</span>
+            </div>
+            <div class="peer-item">
+                <span class="peer-label">Challenges:</span>
+                <span>Perspective B (Operator) — &#x27;ship it&#x27; framing prioritizes velocity over validation. The 6-9 second latency cascade alone should be a blocking concern for a &#x27;real-time companion&#x27; experience.</span>
+            </div>
+            <div class="peer-item">
+                <span class="peer-label">View shifted:</span>
+                <span>Perspective E&#x27;s offline fallback point shifted my view. If Eli is supposed to feel present and adjacent, what happens when Gemini or Kindroid goes down? The architecture has no degraded state — it&#x27;s binary on/off.</span>
+            </div>
+        </div>
+        
+        </div>
+    </div>
+
+    <!-- Synthesis Tab -->
+    <div id="tab-synthesis" class="tab-content">
+        <div class="section-title">Chairman Synthesis</div>
+
+        <div class="synthesis-box">
+            <div class="synthesis-section">
+                <div class="synthesis-label">Key Tensions</div>
+                <div class="synthesis-text">The council split on one fundamental question: does face identification via Gemini reference images work well enough, or is it a ticking time bomb of silent errors that will poison Eli&#x27;s memory over time? The Operator says ship it and iterate. Everyone else says the face path needs more engineering before it&#x27;s trusted. A secondary tension emerged around whether face/voice ID even matters to Eli&#x27;s response quality — the Creative questioned the premise while the Operator defended it as core to the experience. The council unanimously agreed the voice layer (ECAPA-TDNN) is sound.</div>
+            </div>
+
+            <div class="synthesis-section">
+                <div class="synthesis-label">Top Options</div>
+                <div class="options-stack">
+                    
+        <div class="option-card">
+            <div class="option-number">1</div>
+            <div class="option-content">
+                <div class="option-name">Ship voice ID as designed, defer face ID to Phase 2 with on-device embedding</div>
+                <div class="option-reasoning">Four of five council members flagged Gemini face matching as the highest-risk component. The Strategist&#x27;s recommendation — add a lightweight on-device face embedding model (MediaPipe/MobileNet) and use Gemini for verification only — was the most-endorsed concrete fix. This adds 2-3 weeks but eliminates silent error compounding. Voice ID via ECAPA-TDNN is unanimously considered sound and should ship as designed.</div>
+            </div>
+        </div>
+        
+        <div class="option-card">
+            <div class="option-number">2</div>
+            <div class="option-content">
+                <div class="option-name">Ship face ID via Gemini but add confidence gates and manual verification</div>
+                <div class="option-reasoning">If on-device face embedding feels like too much scope, the Researcher and Sceptic both recommended a guard-rail version: require Tim to confirm Gemini&#x27;s face identification before it&#x27;s committed. Add a &#x27;review before send&#x27; step and confidence thresholds. This is simpler but creates UX friction and still relies on Gemini&#x27;s inconsistent visual matching.</div>
+            </div>
+        </div>
+        
+        <div class="option-card">
+            <div class="option-number">3</div>
+            <div class="option-content">
+                <div class="option-name">Drop face ID entirely for v1, focus on voice + photo context</div>
+                <div class="option-reasoning">The Creative&#x27;s reframe: does face ID actually change Eli&#x27;s responses meaningfully? If not, it&#x27;s scope for marginal value. Photos still go to Gemini for scene analysis — Gemini just doesn&#x27;t try to identify WHO is in them. Tim describes who&#x27;s in the photo through his messages. Simplest path, lowest risk, fastest to ship.</div>
+            </div>
+        </div>
+        
+                </div>
+            </div>
+        </div>
+
+        <div class="recommendation-box">
+            <div class="synthesis-label">Recommended Next Step</div>
+            <div class="synthesis-text">Go with Option 1: ship voice identification as designed (ECAPA-TDNN, on-device, auto-enrollment) — the council unanimously endorsed it. For face identification, defer the Gemini reference-image approach to Phase 2 and plan for on-device embedding (MediaPipe face detection + lightweight embedding model) with Gemini as verification only. For v1, photos still go to Gemini for scene analysis but without face matching — Tim identifies people through his messages naturally. Additionally: require 2-3 voice samples per person before committing an enrollment (not a single 5-second clip), test AEC with live ElevenLabs playback on the actual Pixel before finalizing the voice module, define a latency SLA (what&#x27;s the max acceptable delay?), add an offline fallback state, and replace Imgur hosting with local storage for reference images.</div>
+        </div>
+
+        
+        <div class="deal-breaker">
+            <div class="synthesis-label">Deal Breakers Flagged</div>
+            <div class="synthesis-text">AEC failure with high-fidelity ElevenLabs audio. If Android VOICE_COMMUNICATION mode cannot reliably strip Eli&#x27;s locally-amplified TTS voice from mic input, the entire voice identification pipeline breaks — embeddings get contaminated, speaker verification fails, and PTT recordings include Eli talking over Tim. This MUST be tested on the real device before committing to the speaker-first architecture. If AEC fails, the fallback is requiring earbuds (which Tim has explicitly rejected) or muting Eli during mic recording windows.</div>
+        </div>
+        
+
+        <div class="synthesis-box" style="margin-top: 24px;">
+            <div class="synthesis-section">
+                <div class="synthesis-label">Areas of Consensus</div>
+                <div class="synthesis-text">All five council members agreed on three things: (1) Voice identification via ECAPA-TDNN is sound, battle-tested, and appropriate for this use case. (2) Face identification via Gemini reference images is the weakest component and needs either deferral, guardrails, or a different technical approach. (3) The overall sensor-to-emote-to-Kindroid pipeline is well-designed — the emote layer architecture, the editorial priority system, the card types, and the Expo with dev build framework choice are all defensible decisions. The disagreements were about degree of risk and sequencing, not about whether the project is viable.</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        Generated by Council &mdash; Multi-Persona Decision Maker
+    </div>
+</div>
+
+<script>
+    function switchTab(name) {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        event.target.classList.add('active');
+        document.getElementById('tab-' + name).classList.add('active');
+    }
+</script>
+
+</body>
+</html>
