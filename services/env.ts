@@ -9,7 +9,8 @@ type EnvKey =
   | "KINDROID_AI_ID"
   | "ELEVENLABS_API_KEY"
   | "ELEVENLABS_VOICE_ID"
-  | "IMGUR_CLIENT_ID"
+  | "IMAGE_SERVER_URL"
+  | "IMAGE_UPLOAD_KEY"
   | "GOOGLE_MAPS_API_KEY"
   | "OPENWEATHER_API_KEY"
   | "VAULT_URL"
@@ -32,7 +33,8 @@ function rawValue(key: EnvKey): string | undefined {
     case "KINDROID_AI_ID":       return process.env.EXPO_PUBLIC_KINDROID_AI_ID;
     case "ELEVENLABS_API_KEY":   return process.env.EXPO_PUBLIC_ELEVENLABS_API_KEY;
     case "ELEVENLABS_VOICE_ID":  return process.env.EXPO_PUBLIC_ELEVENLABS_VOICE_ID;
-    case "IMGUR_CLIENT_ID":      return process.env.EXPO_PUBLIC_IMGUR_CLIENT_ID;
+    case "IMAGE_SERVER_URL":     return process.env.EXPO_PUBLIC_IMAGE_SERVER_URL;
+    case "IMAGE_UPLOAD_KEY":     return process.env.EXPO_PUBLIC_IMAGE_UPLOAD_KEY;
     case "GOOGLE_MAPS_API_KEY":  return process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;
     case "OPENWEATHER_API_KEY":  return process.env.EXPO_PUBLIC_OPENWEATHER_API_KEY;
     case "VAULT_URL":            return process.env.EXPO_PUBLIC_VAULT_URL;

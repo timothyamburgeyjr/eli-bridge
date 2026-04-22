@@ -98,7 +98,7 @@ export interface Attachment {
   type: "image" | "video" | "audio" | "file";
   localPath: string;
   mimeType: string;
-  imgurUrl?: string; // populated after upload
+  publicUrl?: string; // populated after upload to self-hosted image server
   duration?: number; // seconds, for audio/video
 }
 
@@ -420,7 +420,7 @@ export interface KindroidSendRequest {
   ai_id: string;
   message: string; // _(*emote*) dialog — max 4000 chars
   stream: false;
-  image_urls?: string[]; // Imgur public URLs
+  image_urls?: string[]; // Public URLs — uploaded to the self-hosted image server
   image_description?: string;
   link_url?: string;
   link_description?: string;
@@ -495,15 +495,10 @@ export interface VaultSearchResult {
 }
 
 // ════════════════════════════════════════════════════════════════
-// IMGUR API
+// SELF-HOSTED IMAGE SERVER
 // ════════════════════════════════════════════════════════════════
 
-export interface ImgurUploadResponse {
-  data: {
-    id: string;
-    link: string; // public URL e.g. "https://i.imgur.com/abc123.jpg"
-    deletehash: string;
-  };
-  success: boolean;
-  status: number;
+export interface ImageUploadResponse {
+  /** Server-returned path, e.g. "/images/{sessionId}/{filename}" */
+  url: string;
 }

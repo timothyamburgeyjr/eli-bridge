@@ -10,8 +10,8 @@ export interface StagedAttachment {
   mimeType: string;
   /** Seconds, for audio/video */
   duration?: number;
-  /** Populated after Imgur upload (images only) */
-  imgurUrl?: string;
+  /** Populated after image server upload (images only) */
+  publicUrl?: string;
 }
 
 export interface GeminiInlineBlob {

@@ -27,7 +27,7 @@ Timeout: 300s (5 minutes — waits for full AI generation)
   "ai_id": "A8vWe2Ir0PnxEsPvqDLw",
   "message": "_(*Tim is standing on Xenia Ave, morning light hitting the storefronts. Hank is already two steps ahead, heading toward the comic shop.*) Man, he's been thinking about this all week.",
   "stream": false,
-  "image_urls": ["https://i.imgur.com/abc123.jpg"],
+  "image_urls": ["https://images.amburgey.dev/images/2026-04-22-ksxyz/1714072800-abc12.jpg"],
   "image_description": "Photo of the main street in Yellow Springs, morning light, colorful storefronts"
 }
 ```
@@ -44,7 +44,7 @@ _(*I can picture it — Hank walking ahead like a kid on Christmas morning, and 
 **Optional fields:**
 | Field | Type | Max | Description |
 |-------|------|-----|-------------|
-| `image_urls` | string[] | 10 URLs | Publicly accessible image URLs (via Imgur) |
+| `image_urls` | string[] | 10 URLs | Publicly accessible image URLs (via the self-hosted image server) |
 | `image_description` | string | — | Description of the image(s) for Eli |
 | `link_url` | string | — | A web link for Eli to reference |
 | `link_description` | string | — | Summary/context for the link |
@@ -256,36 +256,41 @@ Response: `{ "voice_id": "..." }` — use this in `.env` as `ELEVENLABS_VOICE_ID
 
 ---
 
-## 4. Imgur Image Hosting
+## 4. Self-hosted Image Server
 
-Base URL: `https://api.imgur.com/3`
+Base URL: `{EXPO_PUBLIC_IMAGE_SERVER_URL}` (e.g. `https://images.amburgey.dev`)
 
-Auth: `Authorization: Client-ID {IMGUR_CLIENT_ID}`
+Auth: `X-Upload-Key: {EXPO_PUBLIC_IMAGE_UPLOAD_KEY}` (uploads only; reads are public)
 
 ### 4.1 Upload Image
 
 ```
-POST /3/image
-Authorization: Client-ID {IMGUR_CLIENT_ID}
-Content-Type: multipart/form-data
+PUT {BASE_URL}/upload/{sessionId}/{filename}
+X-Upload-Key: {upload key}
+Content-Type: image/jpeg   (or image/png, image/webp, etc.)
+Body: raw binary image bytes
 ```
-
-Form field: `image` — file binary or base64 string
 
 **Response:**
 ```json
 {
-  "data": {
-    "id": "abc123",
-    "link": "https://i.imgur.com/abc123.jpg",
-    "deletehash": "xyz789"
-  },
-  "success": true,
-  "status": 200
+  "url": "/images/{sessionId}/{filename}"
 }
 ```
 
-Use `data.link` as the URL in Kindroid's `image_urls` array. Anonymous uploads — no Imgur account needed, just the Client-ID.
+The app resolves the returned path to an absolute URL by prefixing the base server URL, then passes that absolute URL to Kindroid's `image_urls` array.
+
+### 4.2 Read Image (public, no auth)
+
+```
+GET {BASE_URL}/images/{sessionId}/{filename}
+```
+
+### 4.3 Health Check
+
+```
+GET {BASE_URL}/health → "ok"
+```
 
 ---
 
@@ -504,7 +509,7 @@ Barometer.addListener(({ pressure, relativeAltitude }) => {
 | Gemini | Exponential backoff: 2s, 4s, 8s. Max 3 retries | Text-only Kindroid relay (no emote) |
 | Kindroid | Retry with backoff. Queue message if unreachable | Queue in MessageQueue.ts, drain on reconnect |
 | ElevenLabs | Single retry | Silent fallback to text-only |
-| Imgur | Single retry | Send message without images |
+| Image Server | Single retry | Send message without images |
 | OpenWeather | Cache last result. Retry on next cycle | Use cached data |
 | Places | Cache last result | Omit place details from emote |
 | Obsidian | Retry once | Log warning, skip vault write |

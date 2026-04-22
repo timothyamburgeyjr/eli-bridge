@@ -100,7 +100,7 @@ eli-bridge/
 │   ├── gemini.ts                 # Gemini API client (flash + pro routing)
 │   ├── kindroid.ts               # Kindroid API client (send-message, journal-create, update-info)
 │   ├── elevenlabs.ts             # ElevenLabs TTS (streaming audio playback)
-│   ├── imgur.ts                  # Image upload for Kindroid image_urls
+│   ├── imageServer.ts            # Upload to self-hosted image server for Kindroid image_urls
 │   ├── weather.ts                # OpenWeather API
 │   ├── places.ts                 # Google Places API (reverse geocode, details, menus)
 │   ├── obsidian.ts               # Obsidian REST API (journal write, archive)
@@ -221,16 +221,16 @@ Wire up the Kindroid API so Eli actually responds.
    - All calls use Bearer auth with `KINDROID_API_KEY`
    - `ai_id` always set to `KINDROID_AI_ID`
    - `stream: false` always
-2. Build `services/imgur.ts`:
-   - `uploadImage(localPath)` — POST to `https://api.imgur.com/3/image` with Client-ID auth. Returns public URL
+2. Build `services/imageServer.ts`:
+   - `uploadImage(localPath)` — PUT to `${EXPO_PUBLIC_IMAGE_SERVER_URL}/upload/{sessionId}/{filename}` with `X-Upload-Key` header. Returns the absolute public URL
    - Used before every Kindroid call that includes images
 3. Wire the full message flow:
-   - Tim types/speaks → EmoteAssembler builds emote → image uploaded to Imgur if present → Kindroid receives `_(*emote*) dialog` + `image_urls` → Eli's response displayed
+   - Tim types/speaks → EmoteAssembler builds emote → image uploaded to self-hosted server if present → Kindroid receives `_(*emote*) dialog` + `image_urls` → Eli's response displayed
 4. Parse Eli's response: extract `_(*...*)_` blocks as emotes (displayed in purple italic above Eli's text), everything else as spoken dialog
 5. Implement the 4000-char message cap: emote portion capped at 2000, Tim's dialog passed through verbatim
 6. Update `currentScene` on Kindroid when session starts and when significant location changes occur
 
-**Acceptance test:** Send a real message. Eli responds. Emote is properly formatted. Send a message with an image — it uploads to Imgur and Eli sees it. Eli's response emotes render in purple.
+**Acceptance test:** Send a real message. Eli responds. Emote is properly formatted. Send a message with an image — it uploads to the self-hosted image server and Eli sees it. Eli's response emotes render in purple.
 
 ### Phase 5: ElevenLabs TTS
 
@@ -448,7 +448,7 @@ Run all 5 demo scenarios as acceptance criteria.
    - Gemini failure: exponential backoff (2s, 4s, 8s), max 3 retries, fallback to text-only Kindroid relay
    - Kindroid failure: retry with backoff, queue message for later
    - ElevenLabs failure: silently fall back to text-only
-   - Imgur failure: send message without images, log warning
+   - Image-server upload failure: send message without images, log warning
    - Network loss: amber indicator, message queue, on-device ID continues
 
 3. Performance:

@@ -7,7 +7,7 @@ import { STUB_SENSOR_SNAPSHOT } from "@/session/sensorStub";
 import { parseAssembledMessage } from "@/services/gemini";
 import { sendMessage as kindroidSend, updateScene as kindroidUpdateScene } from "@/services/kindroid";
 import { analyzeScene as geminiAnalyzeScene } from "@/services/gemini";
-import { uploadImage as imgurUpload, isImgurConfigured } from "@/services/imgur";
+import { uploadImage, isImageServerConfigured } from "@/services/imageServer";
 import { convertTimAsterisksToEmotes } from "@/components/chat/FormattedBody";
 import {
   StagedAttachment,
@@ -231,17 +231,17 @@ export const useChat = create<ChatState>((set, get) => ({
         pendingSceneMemo: null, // scene memo consumed
       });
 
-      // ── Step 2: Upload any images to Imgur for Kindroid's image_urls
+      // ── Step 2: Upload any images to the self-hosted image server for Kindroid's image_urls
       let imageUrls: string[] | undefined;
-      if (attachments.some((a) => a.kind === "image") && isImgurConfigured()) {
+      if (attachments.some((a) => a.kind === "image") && isImageServerConfigured()) {
         imageUrls = [];
         for (const att of attachments.filter((a) => a.kind === "image")) {
           try {
-            const result = await imgurUpload(att.localPath);
-            imageUrls.push(result.link);
+            const result = await uploadImage(att.localPath);
+            imageUrls.push(result.url);
           } catch (err) {
             // Non-fatal — Eli just won't see that image
-            console.warn("Imgur upload failed", err);
+            console.warn("Image server upload failed", err);
           }
         }
       }
