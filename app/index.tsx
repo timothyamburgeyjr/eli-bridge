@@ -17,6 +17,9 @@ import { SessionTimeline } from "@/components/session/SessionTimeline";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { ChatStream } from "@/components/chat/ChatStream";
 import { InputBar } from "@/components/chat/InputBar";
+import { StagingTray } from "@/components/chat/StagingTray";
+import { MediaPicker } from "@/components/capture/MediaPicker";
+import { CaptureModal, CaptureMode } from "@/components/capture/CaptureModal";
 import { EliAvatar } from "@/components/common/EliAvatar";
 import { SCENARIOS, getScenario, ScenarioId } from "@/data/scenarios";
 
@@ -30,7 +33,7 @@ export default function Main() {
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [micActive, setMicActive] = useState(false);
+  const [captureMode, setCaptureMode] = useState<CaptureMode | null>(null);
   const [source, setSource] = useState<ChatSource>("live");
 
   const liveMessages = useChat((s) => s.messages);
@@ -38,8 +41,9 @@ export default function Main() {
   const errorMessage = useChat((s) => s.errorMessage);
   const lastEmoteChars = useChat((s) => s.lastEmoteChars);
   const lastFilteredContext = useChat((s) => s.lastFilteredContext);
-  const sendMessage = useChat((s) => s.sendMessage);
-  const clearChat = useChat((s) => s.clear);
+  const sceneStatus = useChat((s) => s.sceneStatus);
+  const sceneError = useChat((s) => s.sceneError);
+  const pendingSceneMemo = useChat((s) => s.pendingSceneMemo);
 
   const activeScenario = useMemo(
     () => (source === "live" ? null : getScenario(source as ScenarioId)),
@@ -51,11 +55,6 @@ export default function Main() {
   useEffect(() => {
     if (source === "live" && liveMessages.length > 0 && !showChat) setShowChat(true);
   }, [liveMessages.length, source, showChat]);
-
-  const handleSend = async (text: string) => {
-    if (source !== "live") setSource("live");
-    await sendMessage(text);
-  };
 
   const demoStats = activeScenario?.stats ?? [
     { value: String(liveMessages.length), label: "Messages" },
@@ -168,7 +167,7 @@ export default function Main() {
           )}
         </View>
       ) : (
-        <ChatStream messages={displayMessages} micActive={micActive} />
+        <ChatStream messages={displayMessages} />
       )}
 
       {status === "assembling" && (
@@ -201,20 +200,12 @@ export default function Main() {
         </View>
       )}
 
-      {micActive && (
-        <View style={styles.recordingBanner}>
-          <View style={{ width: 7, height: 7, borderRadius: 4, backgroundColor: C.red }} />
-          <Text style={{ fontSize: 12, color: C.red }}>Recording… tap 🎙️ to stop</Text>
-        </View>
-      )}
+      <StagingTray />
 
       <InputBar
         mode={mode}
-        micActive={micActive}
         pickerOpen={pickerOpen}
         onAttachTap={() => setPickerOpen((p) => !p)}
-        onMicTap={() => setMicActive((m) => !m)}
-        onSend={handleSend}
       />
       </KeyboardAvoidingView>
 
@@ -225,6 +216,40 @@ export default function Main() {
         onClose={() => setTimelineOpen(false)}
       />
       <SettingsPanel visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
+
+      <MediaPicker
+        visible={pickerOpen}
+        onClose={() => setPickerOpen(false)}
+        onPickMode={(m) => {
+          setPickerOpen(false);
+          setCaptureMode(m);
+        }}
+      />
+      <CaptureModal
+        visible={captureMode !== null}
+        initialMode={captureMode ?? "photo"}
+        onClose={() => setCaptureMode(null)}
+      />
+
+      {sceneStatus === "analyzing" && (
+        <View style={styles.sceneAnalyzingBanner}>
+          <ActivityIndicator size="small" color={C.accent} />
+          <Text style={{ color: C.accent, fontSize: 11 }}>Analyzing scene with Gemini…</Text>
+        </View>
+      )}
+      {sceneError && (
+        <Pressable onPress={() => useChat.setState({ sceneError: null, sceneStatus: "idle" })}>
+          <View style={styles.errorBanner}>
+            <Text style={{ color: C.red, fontSize: 11, flex: 1 }}>Scene capture failed: {sceneError}</Text>
+            <Text style={{ color: C.red, fontSize: 14 }}>×</Text>
+          </View>
+        </Pressable>
+      )}
+      {pendingSceneMemo && (
+        <View style={styles.sceneMemoBanner}>
+          <Text style={{ color: C.accent, fontSize: 11 }}>🎬 Scene pinned — next message will use it</Text>
+        </View>
+      )}
     </SafeAreaView>
   );
 }
@@ -252,6 +277,31 @@ const styles = StyleSheet.create({
     textAlign: "center",
     lineHeight: 23,
     marginBottom: 24,
+  },
+  sceneAnalyzingBanner: {
+    position: "absolute",
+    bottom: 88,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: C.accent + "14",
+    borderWidth: 1,
+    borderColor: C.accent + "44",
+  },
+  sceneMemoBanner: {
+    position: "absolute",
+    bottom: 88,
+    alignSelf: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 5,
+    borderRadius: 20,
+    backgroundColor: C.accent + "10",
+    borderWidth: 1,
+    borderColor: C.accent + "55",
   },
   scenarioRow: { gap: 2, paddingHorizontal: 2 },
   scenarioChip: {

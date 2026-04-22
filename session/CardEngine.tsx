@@ -13,6 +13,7 @@ import { AudioSnapCard } from "@/components/cards/AudioSnapCard";
 import { VenueModeCard } from "@/components/cards/VenueModeCard";
 import { RideCard } from "@/components/cards/RideCard";
 import { SessionJournalCard } from "@/components/cards/SessionJournalCard";
+import { SceneCard } from "@/components/cards/SceneCard";
 
 export type AnyMsg = Record<string, any> & {
   id: string;
@@ -52,6 +53,8 @@ export function renderCard(msg: AnyMsg): React.ReactElement | null {
     case "journal":
     case "sessionjournal":
       return <SessionJournalCard msg={msg as any} />;
+    case "scene":
+      return <SceneCard msg={msg as any} />;
     default:
       return null;
   }

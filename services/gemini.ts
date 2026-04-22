@@ -102,24 +102,44 @@ export function parseAssembledMessage(text: string): ParsedMessage {
 export interface AssembleEmoteInput {
   /** Text summary of sensor snapshot — freshness-filtered, tier-prioritized. */
   sensorSnapshot: string;
-  /** Tim's raw dialog/mic text, verbatim. */
+  /** Tim's raw dialog/mic text, verbatim. Empty if Tim sent audio only. */
   timDialog: string;
-  /** Optional base64-encoded attachments. */
-  image?: { mimeType: string; data: string };
-  audio?: { mimeType: string; data: string };
-  /** Prior turns in this session, most-recent-first or chronological? CHRONOLOGICAL. */
+  /** Optional base64-encoded attachments. Multiple of each type allowed. */
+  images?: { mimeType: string; data: string }[];
+  audios?: { mimeType: string; data: string }[];
+  /** Prior turns in this session in chronological order. */
   history?: Content[];
 }
 
 export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMessage> {
   const parts: Part[] = [];
-  const header = `[SENSOR SNAPSHOT]\n${input.sensorSnapshot}\n\n[TIM'S INPUT]\n${input.timDialog}`;
+
+  const hasAudio = (input.audios?.length ?? 0) > 0;
+  const audioHint = hasAudio
+    ? "\n\n[AUDIO HANDLING — IMPORTANT]\n" +
+      "Tim's audio is attached. Transcribe his speech as dialog with high fidelity. " +
+      "Pay close attention to tonal shifts over the course of the audio — if Tim transitions " +
+      "from speaking to singing, from calm to excited, from statement to laugh, or has notable " +
+      "pauses/sighs/breath in the middle of the recording, insert an inline `_(*description of the shift*)_` " +
+      "emote at the transition point WITHIN the transcribed dialog. The inline emote should be brief " +
+      "(3-10 words). Do NOT reframe the whole message as if the later state applied throughout — " +
+      "preserve the actual order and flow of what happened.\n\n" +
+      "Example of correct handling:\n" +
+      "  Tim starts talking normally, then begins singing partway through.\n" +
+      "  Output: _(*leading ambient scene*)_ Here's one you might like. Let me sing it for you. " +
+      "_(*starts singing softly*)_ Lemon pound cake, it tastes so nice...\n"
+    : "";
+
+  const inputLabel = input.timDialog
+    ? `[TIM'S INPUT]\n${input.timDialog}`
+    : `[TIM'S INPUT]\n(Tim sent audio only — transcribe and build Tim's dialog from the audio.)`;
+  const header = `[SENSOR SNAPSHOT]\n${input.sensorSnapshot}\n\n${inputLabel}${audioHint}`;
   parts.push({ text: header });
-  if (input.image) {
-    parts.push({ inlineData: { mimeType: input.image.mimeType, data: input.image.data } });
+  for (const img of input.images ?? []) {
+    parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
   }
-  if (input.audio) {
-    parts.push({ inlineData: { mimeType: input.audio.mimeType, data: input.audio.data } });
+  for (const audio of input.audios ?? []) {
+    parts.push({ inlineData: { mimeType: audio.mimeType, data: audio.data } });
   }
 
   const contents: Content[] = [...(input.history ?? []), { role: "user", parts }];
@@ -133,12 +153,12 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
 
 export async function analyzeScene(opts: {
   prompt: string;
-  image?: { mimeType: string; data: string };
-  audio?: { mimeType: string; data: string };
+  images?: { mimeType: string; data: string }[];
+  audios?: { mimeType: string; data: string }[];
 }): Promise<string> {
   const parts: Part[] = [{ text: opts.prompt }];
-  if (opts.image) parts.push({ inlineData: opts.image });
-  if (opts.audio) parts.push({ inlineData: opts.audio });
+  for (const img of opts.images ?? []) parts.push({ inlineData: img });
+  for (const audio of opts.audios ?? []) parts.push({ inlineData: audio });
   const result = await withRetry(() =>
     pro().generateContent({ contents: [{ role: "user", parts }] })
   );

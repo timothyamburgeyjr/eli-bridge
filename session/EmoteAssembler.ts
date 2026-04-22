@@ -8,9 +8,14 @@ import { CONFIG } from "@/constants/config";
 export interface AssembleOptions {
   sensors: SensorSnapshot;
   timDialog: string;
-  image?: { mimeType: string; data: string };
-  audio?: { mimeType: string; data: string };
+  images?: { mimeType: string; data: string }[];
+  audios?: { mimeType: string; data: string }[];
   history?: Content[];
+  /**
+   * One-shot scene memo from Scene Capture. Prepended to the sensor snapshot
+   * for this call only, then caller is responsible for clearing.
+   */
+  sceneMemo?: string;
 }
 
 export interface AssembleResult extends ParsedMessage {
@@ -27,13 +32,16 @@ export class EmoteAssembler {
 
   async assemble(opts: AssembleOptions): Promise<AssembleResult> {
     const filtered = this.ledger.filter(opts.sensors);
-    const snapshotText = snapshotToText(filtered);
+    const baseSnapshot = snapshotToText(filtered);
+    const snapshotText = opts.sceneMemo
+      ? `[TIM-CAPTURED SCENE — use this for Tier 1 grounding; take precedence over sensor defaults]\n${opts.sceneMemo}\n\n${baseSnapshot}`
+      : baseSnapshot;
 
     let parsed = await assembleEmote({
       sensorSnapshot: snapshotText,
       timDialog: opts.timDialog,
-      image: opts.image,
-      audio: opts.audio,
+      images: opts.images,
+      audios: opts.audios,
       history: opts.history,
     });
 

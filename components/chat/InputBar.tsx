@@ -1,29 +1,99 @@
-import React, { useState } from "react";
-import { View, TextInput, Pressable, Text, StyleSheet } from "react-native";
+import React, { useEffect, useState, useRef } from "react";
+import { View, TextInput, Pressable, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { useAudioRecorder } from "expo-audio";
 import { C } from "@/constants/theme";
+import {
+  ensureRecordingPermission,
+  setupBridgeAudioMode,
+  VOICE_RECORDING_PRESET,
+} from "@/services/audio";
+import { useChat } from "@/stores/chatStore";
 
 interface Props {
   mode: "session" | "oneoff";
-  micActive: boolean;
-  onMicTap: () => void;
   onAttachTap: () => void;
-  onSend: (text: string) => void;
   pickerOpen?: boolean;
 }
 
-export function InputBar({ mode, micActive, onMicTap, onAttachTap, onSend, pickerOpen }: Props) {
+export function InputBar({ mode, onAttachTap, pickerOpen }: Props) {
   const [text, setText] = useState("");
-  const hasSend = text.trim().length > 0;
+  const [recording, setRecording] = useState(false);
+  const [permissionError, setPermissionError] = useState<string | null>(null);
+  const recorder = useAudioRecorder(VOICE_RECORDING_PRESET);
+  const recorderRef = useRef(recorder);
+  recorderRef.current = recorder;
 
-  const handleSend = () => {
+  const pending = useChat((s) => s.pending);
+  const addAttachment = useChat((s) => s.addAttachment);
+  const sendMessage = useChat((s) => s.sendMessage);
+
+  useEffect(() => {
+    setupBridgeAudioMode();
+  }, []);
+
+  const hasSend = text.trim().length > 0 || pending.length > 0;
+
+  const handleSend = async () => {
+    if (!hasSend) return;
     const t = text.trim();
-    if (!t) return;
-    onSend(t);
     setText("");
+    await sendMessage(t);
+  };
+
+  const handleMicTap = async () => {
+    if (recording) {
+      // Stop recording and stage the audio file
+      try {
+        await recorderRef.current.stop();
+        const uri = recorderRef.current.uri;
+        if (uri) {
+          addAttachment({
+            kind: "audio",
+            localPath: uri,
+            mimeType: "audio/mp4",
+            duration: Math.max(1, Math.floor(recorderRef.current.currentTime)),
+          });
+        }
+      } catch (err) {
+        setPermissionError(err instanceof Error ? err.message : "Recording failed");
+      } finally {
+        setRecording(false);
+      }
+      return;
+    }
+
+    // Start recording
+    const granted = await ensureRecordingPermission();
+    if (!granted) {
+      setPermissionError("Mic permission denied. Enable in Android Settings → Apps → Eli Bridge → Permissions.");
+      return;
+    }
+    try {
+      await recorderRef.current.prepareToRecordAsync();
+      recorderRef.current.record();
+      setRecording(true);
+      setPermissionError(null);
+    } catch (err) {
+      setPermissionError(err instanceof Error ? err.message : "Recording failed");
+    }
   };
 
   return (
     <View style={styles.wrap}>
+      {recording && (
+        <View style={styles.recordingBanner}>
+          <View style={styles.redDot} />
+          <Text style={{ fontSize: 12, color: C.red }}>Recording… tap 🎙️ to stop</Text>
+        </View>
+      )}
+      {permissionError && (
+        <Pressable onPress={() => setPermissionError(null)}>
+          <View style={styles.errorBanner}>
+            <Text style={{ color: C.red, fontSize: 11, flex: 1 }}>⚠ {permissionError}</Text>
+            <Text style={{ color: C.red, fontSize: 14 }}>×</Text>
+          </View>
+        </Pressable>
+      )}
       <View style={styles.bar}>
         <Pressable
           onPress={onAttachTap}
@@ -51,17 +121,21 @@ export function InputBar({ mode, micActive, onMicTap, onAttachTap, onSend, picke
           </Pressable>
         ) : (
           <Pressable
-            onPress={onMicTap}
+            onPress={handleMicTap}
             style={[
               styles.sendBtn,
               {
-                backgroundColor: micActive ? C.red + "22" : "transparent",
+                backgroundColor: recording ? C.red + "22" : "transparent",
                 borderWidth: 1.5,
-                borderColor: micActive ? C.red : C.border,
+                borderColor: recording ? C.red : C.border,
               },
             ]}
           >
-            <Text style={{ fontSize: 18 }}>🎙️</Text>
+            {recording ? (
+              <ActivityIndicator size="small" color={C.red} />
+            ) : (
+              <Text style={{ fontSize: 18 }}>🎙️</Text>
+            )}
           </Pressable>
         )}
       </View>
@@ -111,5 +185,31 @@ const styles = StyleSheet.create({
     borderRadius: 19,
     alignItems: "center",
     justifyContent: "center",
+  },
+  recordingBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: C.red + "14",
+    borderColor: C.red + "44",
+    borderWidth: 1,
+    borderRadius: 18,
+  },
+  redDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: C.red },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: C.red + "14",
+    borderWidth: 1,
+    borderColor: C.red + "44",
   },
 });
