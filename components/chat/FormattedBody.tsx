@@ -14,6 +14,53 @@ interface Segment {
 
 const EMOTE_RE = /_\(\*\s*([\s\S]*?)\s*\*\)_/g;
 
+/**
+ * Convert Tim's single-asterisk emotes `*action*` into Bridge emote wrappers
+ * `_(*action*)_`. Sentence-terminating punctuation (`.`, `!`, `?`) immediately
+ * after the closing asterisk is absorbed INTO the emote so it reads as a
+ * complete thought rather than leaving a leading period in the dialog that
+ * follows. Double-asterisk markdown `**bold**` is left alone.
+ *
+ * Examples:
+ *   "*walks to the kitchen*. I'm making coffee"
+ *     → "_(*walks to the kitchen.*)_ I'm making coffee"
+ *   "*laughs* Yeah"
+ *     → "_(*laughs*)_ Yeah"
+ *   "*grinning*! Look at this"
+ *     → "_(*grinning!*)_ Look at this"
+ */
+export function convertTimAsterisksToEmotes(input: string): string {
+  return input.replace(
+    /(?<!\*)\*([^*\n]+?)\*([.!?])?(?!\*)/g,
+    (_, inner: string, punct?: string) => `_(*${inner}${punct ?? ""}*)_`
+  );
+}
+
+/**
+ * Return only the dialog text from a Bridge-format message, stripping every
+ * `_(*emote*)_` block. Used to feed ElevenLabs — emotes never get spoken aloud.
+ */
+export function extractSpokenText(raw: string): string {
+  return parseSegments(raw)
+    .filter((s) => s.type === "dialog")
+    .map((s) => s.text)
+    .join(" ")
+    .trim();
+}
+
+/**
+ * Return all emote blocks (without the `_(* *)_` wrappers) joined by " | ".
+ * Used as context for Gemini's audio-tag injection so it knows the emotional
+ * backdrop when deciding where `[laughs]` / `[sighs]` etc. should land.
+ */
+export function extractEmoteContext(raw: string): string {
+  return parseSegments(raw)
+    .filter((s) => s.type === "emote")
+    .map((s) => s.text)
+    .join(" | ")
+    .trim();
+}
+
 export function parseSegments(raw: string): Segment[] {
   const segments: Segment[] = [];
   let last = 0;

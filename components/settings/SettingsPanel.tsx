@@ -48,12 +48,6 @@ export function SettingsPanel({ visible, onClose, onPeoplePress }: Props) {
       heading: "Voice & Audio",
       toggles: [
         {
-          key: "elevenLabsAutoplay",
-          icon: "🔊",
-          label: "Autoplay Eli's voice",
-          hint: "Auto-plays dialog on each message. Off = manual ▶ per bubble.",
-        },
-        {
           key: "voiceVerification",
           icon: "🎙️",
           label: "Voice verification (PTT gate)",

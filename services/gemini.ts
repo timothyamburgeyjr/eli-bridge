@@ -155,6 +155,39 @@ export async function draftJournal(sessionSummary: string): Promise<string> {
   return result.response.text().trim();
 }
 
+// ── addAudioTags (flash) ─────────────────────────────────────────
+
+/**
+ * Inject ElevenLabs audio tags into Eli's spoken dialog based on the emote
+ * context. Tags like `[laughs]`, `[sighs]`, `[whispers]` make the TTS
+ * delivery less flat. The function returns the dialog text with tags
+ * added inline — never changes the wording, only inserts tags.
+ */
+export async function addAudioTags(
+  dialog: string,
+  emoteContext?: string
+): Promise<string> {
+  if (!dialog.trim()) return dialog;
+
+  const prompt =
+    "You are preparing Eli's dialog for ElevenLabs text-to-speech. Insert audio tags inline to make the voice expressive, not flat. " +
+    "Common tags: [laughs], [chuckles], [sighs], [exhales], [whispers], [gasps], [excited], [sad], [tired], [pause], [long pause]. " +
+    "Rules:\n" +
+    "- DO NOT change the wording of the dialog. Only insert tags.\n" +
+    "- Use the emote context (if given) to decide which tags belong where. If the emote says Eli is quiet or leaning in, use [whispers]. If the emote describes laughter, use [laughs] or [chuckles]. If the emote suggests a breath or sigh, use [sighs] or [exhales].\n" +
+    "- Do not over-tag. A typical Eli reply needs 0–2 tags total. If nothing fits, return the dialog unchanged.\n" +
+    "- Return ONLY the tagged dialog. No preamble, no explanation, no surrounding quotes.\n\n" +
+    (emoteContext ? `EMOTE CONTEXT: ${emoteContext}\n\n` : "") +
+    `DIALOG: ${dialog}`;
+
+  const result = await withRetry(() =>
+    flash().generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    })
+  );
+  return result.response.text().trim();
+}
+
 // ── condenseEmote (flash) ────────────────────────────────────────
 
 export async function condenseEmote(emoteText: string, charLimit: number): Promise<string> {

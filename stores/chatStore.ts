@@ -6,6 +6,7 @@ import { EmoteAssembler } from "@/session/EmoteAssembler";
 import { STUB_SENSOR_SNAPSHOT } from "@/session/sensorStub";
 import { parseAssembledMessage } from "@/services/gemini";
 import { sendMessage as kindroidSend } from "@/services/kindroid";
+import { convertTimAsterisksToEmotes } from "@/components/chat/FormattedBody";
 
 export type SendStatus = "idle" | "assembling" | "sending" | "error";
 
@@ -39,13 +40,12 @@ function buildHistory(messages: ChatItem[]): Content[] {
     if (m.from === "tim") {
       history.push({
         role: "user",
-        parts: [{ text: `[TIM'S INPUT]\n${m.dialog}` }],
+        parts: [{ text: `[TIM'S INPUT]\n${m.raw ?? m.dialog}` }],
       });
     } else if (m.from === "eli") {
-      const combined = m.emote ? `_(*${m.emote}*)_ ${m.dialog}` : m.dialog;
       history.push({
         role: "model",
-        parts: [{ text: combined }],
+        parts: [{ text: m.raw ?? (m.emote ? `_(*${m.emote}*)_ ${m.dialog}` : m.dialog) }],
       });
     }
   }
@@ -125,25 +125,33 @@ export const useChat = create<ChatState>((set, get) => ({
         history,
       });
 
+      // ── Step 1b: Reconstruct client-side so Tim's dialog is ALWAYS preserved ──
+      // Gemini occasionally drops or edits Tim's dialog despite the system prompt
+      // telling it not to. We use only its ambient-scene emote and reassemble
+      // the final message here: ambient + Tim's own (converted) emotes + dialog.
+      const timWithEmotes = convertTimAsterisksToEmotes(text);
+      const ambient = assembled.leadingEmote.trim();
+      const finalRaw = ambient ? `_(*${ambient}*)_ ${timWithEmotes}` : timWithEmotes;
+
       const finalizedTim: ChatItem = {
         id: timMsgId,
         from: "tim",
         time: timeString(),
-        emote: assembled.leadingEmote,
-        dialog: assembled.body || text,
-        raw: assembled.raw,
+        emote: ambient,
+        dialog: timWithEmotes,
+        raw: finalRaw,
       };
 
       // Surface the Tim message + update status to "sending" for the Kindroid wait
       set({
         messages: [...get().messages.slice(0, -1), finalizedTim],
         status: "sending",
-        lastEmoteChars: assembled.leadingEmote.length,
+        lastEmoteChars: ambient.length,
         lastFilteredContext: contextPreview(assembled.filteredSensors),
       });
 
       // ── Step 2: Kindroid relays to Eli and returns his reply ────────
-      const kindroidMessage = assembled.raw;
+      const kindroidMessage = finalRaw;
       const eliRaw = await kindroidSend(kindroidMessage);
       const eliParsed = parseAssembledMessage(eliRaw);
 

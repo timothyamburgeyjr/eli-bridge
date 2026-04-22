@@ -1,8 +1,16 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { View, Text, Pressable, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  ScrollView,
+  ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { C } from "@/constants/theme";
-import { useSettings } from "@/stores/settingsStore";
 import { useChat } from "@/stores/chatStore";
 import { SessionHeader } from "@/components/session/SessionHeader";
 import { SessionTimeline } from "@/components/session/SessionTimeline";
@@ -25,7 +33,6 @@ export default function Main() {
   const [micActive, setMicActive] = useState(false);
   const [source, setSource] = useState<ChatSource>("live");
 
-  const elevenLabsAutoplay = useSettings((s) => s.elevenLabsAutoplay);
   const liveMessages = useChat((s) => s.messages);
   const status = useChat((s) => s.status);
   const errorMessage = useChat((s) => s.errorMessage);
@@ -59,6 +66,11 @@ export default function Main() {
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom", "left", "right"]}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
+      >
       <SessionHeader
         connected={connected}
         mode={mode}
@@ -156,7 +168,7 @@ export default function Main() {
           )}
         </View>
       ) : (
-        <ChatStream messages={displayMessages} autoplay={elevenLabsAutoplay} micActive={micActive} />
+        <ChatStream messages={displayMessages} micActive={micActive} />
       )}
 
       {status === "assembling" && (
@@ -204,6 +216,7 @@ export default function Main() {
         onMicTap={() => setMicActive((m) => !m)}
         onSend={handleSend}
       />
+      </KeyboardAvoidingView>
 
       <SessionTimeline
         visible={timelineOpen}
@@ -218,6 +231,7 @@ export default function Main() {
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: C.bg },
+  flex: { flex: 1 },
   empty: {
     flex: 1,
     alignItems: "center",

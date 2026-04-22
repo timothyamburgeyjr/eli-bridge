@@ -9,7 +9,6 @@ export type SettingsToggleKey =
   | "ambientAudioEnabled"
   | "calendarEnabled"
   | "nowPlayingEnabled"
-  | "elevenLabsAutoplay"
   | "voiceVerification"
   | "pulseMode"
   | "safetyModeAuto";
@@ -22,7 +21,6 @@ export interface SettingsState {
   calendarEnabled: boolean;
   nowPlayingEnabled: boolean;
 
-  elevenLabsAutoplay: boolean;
   voiceVerification: boolean;
 
   pulseMode: boolean;
@@ -66,7 +64,6 @@ export const useSettings = create<SettingsState>()(
       calendarEnabled: true,
       nowPlayingEnabled: true,
 
-      elevenLabsAutoplay: true,
       voiceVerification: true,
 
       pulseMode: false,
@@ -85,7 +82,6 @@ export const useSettings = create<SettingsState>()(
         ambientAudioEnabled: s.ambientAudioEnabled,
         calendarEnabled: s.calendarEnabled,
         nowPlayingEnabled: s.nowPlayingEnabled,
-        elevenLabsAutoplay: s.elevenLabsAutoplay,
         voiceVerification: s.voiceVerification,
         pulseMode: s.pulseMode,
         safetyModeAuto: s.safetyModeAuto,

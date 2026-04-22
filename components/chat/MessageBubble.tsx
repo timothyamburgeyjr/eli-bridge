@@ -1,9 +1,10 @@
-import React, { useState } from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import React from "react";
+import { View, Text, Pressable, ActivityIndicator, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
 import { Pill } from "@/components/common/PillButton";
 import { EliAvatar } from "@/components/common/EliAvatar";
 import { FormattedBody } from "./FormattedBody";
+import { useAudio } from "@/stores/audioStore";
 
 interface ContextPill {
   icon: string;
@@ -62,17 +63,59 @@ export function TimBubble({ emote, dialog, raw, time, pills, isDrive }: TimProps
 }
 
 interface EliProps {
+  id: string;
   emote?: string;
   dialog: string;
   raw?: string;
   time: string;
   isDrive?: boolean;
-  autoplay?: boolean;
 }
 
-export function EliBubble({ emote, dialog, raw, time, isDrive, autoplay }: EliProps) {
-  const [playing, setPlaying] = useState(false);
+export function EliBubble({ id, emote, dialog, raw, time, isDrive }: EliProps) {
   const body = raw ?? composeRaw(emote, dialog);
+  const entry = useAudio((s) => s.cache[id]);
+  const playEli = useAudio((s) => s.playEli);
+  const status = entry?.status ?? "idle";
+
+  const handlePress = () => {
+    playEli(id, body);
+  };
+
+  // Button visual state
+  let icon: React.ReactNode = <Text style={{ fontSize: 12 }}>▶</Text>;
+  let btnBg: string = "rgba(255,255,255,0.07)";
+  let btnBorder: string = C.border;
+  let iconColor: string = C.muted;
+
+  if (status === "generating") {
+    icon = <ActivityIndicator size="small" color={C.accent} />;
+    btnBg = C.accent + "14";
+    btnBorder = C.accent + "44";
+  } else if (status === "playing") {
+    icon = <Text style={{ fontSize: 12, color: C.accent }}>⏸</Text>;
+    btnBg = C.accent + "22";
+    btnBorder = C.accent;
+    iconColor = C.accent;
+  } else if (status === "ready") {
+    // Fresh cached audio, not yet played → accent-colored ▶
+    icon = <Text style={{ fontSize: 12, color: C.accent }}>▶</Text>;
+    btnBg = C.accent + "14";
+    btnBorder = C.accent + "66";
+  } else if (status === "played") {
+    // Already heard — muted ▶ so you can see at a glance what's been consumed
+    icon = <Text style={{ fontSize: 12, color: C.muted }}>▶</Text>;
+    btnBg = "rgba(255,255,255,0.04)";
+    btnBorder = C.border;
+    iconColor = C.muted;
+  } else if (status === "error") {
+    icon = <Text style={{ fontSize: 12, color: C.red }}>⚠</Text>;
+    btnBg = C.red + "14";
+    btnBorder = C.red + "44";
+  }
+
+  // Footer speaker icon reflects status: played = muted, otherwise show available
+  const footerIcon = status === "played" ? "🔇" : "🔊";
+
   return (
     <View style={[styles.row, { alignItems: "flex-end", gap: 8, opacity: isDrive ? 0.7 : 1, marginBottom: isDrive ? 14 : 20 }]}>
       <EliAvatar size={28} fontSize={12} />
@@ -96,21 +139,22 @@ export function EliBubble({ emote, dialog, raw, time, isDrive, autoplay }: EliPr
           <FormattedBody text={body} />
           <View style={styles.eliFooter}>
             <Text style={{ fontSize: 10, color: C.muted }}>
-              {autoplay ? "🔊" : "🔇"} Eli · {time}
+              {footerIcon} Eli · {time}
             </Text>
             <Pressable
-              onPress={() => setPlaying((p) => !p)}
+              onPress={handlePress}
+              disabled={status === "generating"}
               style={[
                 styles.playBtn,
-                {
-                  backgroundColor: playing ? C.accent + "22" : "rgba(255,255,255,0.07)",
-                  borderColor: playing ? C.accent : C.border,
-                },
+                { backgroundColor: btnBg, borderColor: btnBorder },
               ]}
             >
-              <Text style={{ color: playing ? C.accent : C.muted, fontSize: 12 }}>{playing ? "⏸" : "▶"}</Text>
+              {icon}
             </Pressable>
           </View>
+          {status === "error" && entry?.error ? (
+            <Text style={styles.errorText}>{entry.error}</Text>
+          ) : null}
         </View>
       </View>
     </View>
@@ -135,5 +179,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     alignItems: "center",
     justifyContent: "center",
+  },
+  errorText: {
+    fontSize: 10,
+    color: C.red,
+    marginTop: 6,
+    lineHeight: 14,
   },
 });
