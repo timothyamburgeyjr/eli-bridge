@@ -11,6 +11,17 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     // is managed automatically by EAS because eas.json sets
     // `cli.appVersionSource = "remote"` — EAS increments it on every build.
     version: "0.1.0-alpha.1",
+    // OTA update channel — JS-only fixes get pushed via `eas update
+    // --channel preview` and picked up by installed APKs on next launch.
+    // runtimeVersion.policy "appVersion" keys compatibility to the user-
+    // facing version string, so bumping version (e.g. alpha.2) means the
+    // old alpha.1 APK stops receiving new JS updates until rebuilt.
+    updates: {
+      url: "https://u.expo.dev/dd4e5e3d-753a-482d-bf5a-d8ed9b83f217",
+    },
+    runtimeVersion: {
+      policy: "appVersion",
+    },
     orientation: "portrait",
     scheme: "elibridge",
     userInterfaceStyle: "dark",
