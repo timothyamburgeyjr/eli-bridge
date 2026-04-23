@@ -8,6 +8,7 @@
     "prestart": "node scripts/build-prompt.mjs",
     "preandroid": "node scripts/build-prompt.mjs",
     "preios": "node scripts/build-prompt.mjs",
+    "eas-build-post-install": "node scripts/build-prompt.mjs",
     "start": "expo start --dev-client",
     "android": "expo run:android",
     "ios": "expo run:ios",
