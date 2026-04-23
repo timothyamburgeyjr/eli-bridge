@@ -283,6 +283,21 @@ export const useChat = create<ChatState>((set, get) => ({
     // Must have either text or at least one attachment to send
     if (!text && attachments.length === 0) return;
 
+    // Re-entry guard: if a send is already in flight, drop this call.
+    // Before this guard the InputBar's send button stayed tappable during
+    // assembling/sending, and rapid taps fired concurrent sendMessages —
+    // each capturing fresh chat history state, so the second and third
+    // copies on Kindroid had increasingly rich emotes that referenced
+    // Eli's replies to the first. Draining is safe here because the
+    // drainer awaits each sendMessage serially; by the time its next
+    // iteration calls sendMessage, status is back to "idle".
+    if (state.status === "assembling" || state.status === "sending") {
+      console.warn(
+        "[chatStore] sendMessage called while a send is already in flight — ignoring duplicate"
+      );
+      return;
+    }
+
     // ── Offline guard ────────────────────────────────────────────────
     // If the device is offline, don't even attempt Gemini/Kindroid calls.
     // Queue the message + show a "queued" Tim bubble in the chat. The

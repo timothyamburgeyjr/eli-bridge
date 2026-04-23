@@ -25,15 +25,17 @@ export function InputBar({ onAttachTap, pickerOpen }: Props) {
   const pending = useChat((s) => s.pending);
   const addAttachment = useChat((s) => s.addAttachment);
   const sendMessage = useChat((s) => s.sendMessage);
+  const chatStatus = useChat((s) => s.status);
 
   useEffect(() => {
     setupBridgeAudioMode();
   }, []);
 
+  const sendBusy = chatStatus === "assembling" || chatStatus === "sending";
   const hasSend = text.trim().length > 0 || pending.length > 0;
 
   const handleSend = async () => {
-    if (!hasSend) return;
+    if (!hasSend || sendBusy) return;
     const t = text.trim();
     setText("");
     await sendMessage(t);
@@ -115,8 +117,22 @@ export function InputBar({ onAttachTap, pickerOpen }: Props) {
           style={styles.input}
         />
         {hasSend ? (
-          <Pressable onPress={handleSend} style={[styles.sendBtn, { backgroundColor: C.accent }]}>
-            <Text style={{ fontSize: 18, color: "#fff" }}>↑</Text>
+          <Pressable
+            onPress={handleSend}
+            disabled={sendBusy}
+            style={[
+              styles.sendBtn,
+              {
+                backgroundColor: sendBusy ? C.muted : C.accent,
+                opacity: sendBusy ? 0.55 : 1,
+              },
+            ]}
+          >
+            {sendBusy ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={{ fontSize: 18, color: "#fff" }}>↑</Text>
+            )}
           </Pressable>
         ) : (
           <Pressable
