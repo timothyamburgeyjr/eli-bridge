@@ -70,7 +70,7 @@ export function SessionHeader({
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <EliAvatar size={26} fontSize={11} />
           <View>
-            <Text style={{ fontSize: 15, fontWeight: "700", color: C.text }}>Eli Bridge</Text>
+            <Text style={{ fontSize: 15, fontWeight: "700", color: C.text }}>Eli's Bridge</Text>
             <View style={{ marginTop: 2 }}>
               <StatusIndicator status={effectiveStatus} label={effectiveLabel} />
             </View>
