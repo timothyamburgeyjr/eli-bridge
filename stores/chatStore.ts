@@ -378,7 +378,14 @@ export const useChat = create<ChatState>((set, get) => ({
 
       const speakerLabels: SpeakerLabel[] = [];
       const matchedPeople = new Map<string, Person>(); // id → person, deduped
-      const unknownVoiceAttachments: { att: StagedAttachment; embedding: number[] }[] = [];
+      // Unknown-voice auto-enrollment cards are DISABLED — the voice
+      // embedding on short PTT/AudioSnap clips is too easily triggered
+      // by ambient noise (HVAC, wildlife, passing cars, household sounds),
+      // which produced spammy "new voice detected" cards for things that
+      // weren't voices at all. Unknown voices still flow to Gemini as
+      // labels for context, but Tim enrolls new people proactively via
+      // Settings → People → Enroll (which collects 3 deliberate samples
+      // and averages them for a cleaner embedding).
       for (const att of audioAttachments) {
         try {
           const res = await identifySpeaker(att.localPath);
@@ -391,14 +398,12 @@ export const useChat = create<ChatState>((set, get) => ({
               notes: res.person.notes, // replaced below with Obsidian context if available
             });
           } else if (!res.person) {
+            // Surface as a label so the emote can acknowledge the sound,
+            // but do NOT enqueue an UnknownPersonCard.
             speakerLabels.push({
               speaker: "Unknown",
               quote: "(unrecognized voice)",
               confidence: res.confidence,
-            });
-            unknownVoiceAttachments.push({
-              att,
-              embedding: Array.from(res.embedding),
             });
           }
           // matched-as-Tim → silently consumed, no label, no card
@@ -510,21 +515,12 @@ export const useChat = create<ChatState>((set, get) => ({
         attachments: pendingTim.attachments,
       };
 
-      // Build UnknownPersonCard messages for any unrecognized voices/faces.
-      // Each card carries the embedding so enrollFromCard() can commit it
-      // without re-running the native inference.
+      // Build UnknownPersonCard messages for unrecognized FACES only.
+      // Voice unknowns are intentionally NOT auto-carded (see comment in
+      // the voice-ID loop above). Faces stay because photos are deliberate
+      // captures — a "hey, is this someone new?" prompt is actually useful
+      // there, not noise.
       const unknownCards: ChatItem[] = [];
-      for (const { att, embedding } of unknownVoiceAttachments) {
-        unknownCards.push({
-          id: `unk-voice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          from: "unknownperson",
-          time: timeString(),
-          variant: "voice",
-          quote: "(unrecognized voice in the recording)",
-          audioPath: att.localPath,
-          embedding,
-        });
-      }
       for (const { att, match } of unknownFaceDetections) {
         unknownCards.push({
           id: `unk-face-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
