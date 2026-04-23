@@ -23,6 +23,7 @@ import { resolveOrCreateProfilePath } from "@/people/profileLinker";
 import { useMode } from "@/stores/modeStore";
 import { useSettings } from "@/stores/settingsStore";
 import { isOffline, useConnection } from "@/stores/connectionStore";
+import { persistQueue, hydrateQueue } from "@/session/queuePersistence";
 import type { SpeakerLabel, FaceLabel } from "@/types";
 
 export type SendStatus = "idle" | "assembling" | "sending" | "error";
@@ -91,6 +92,13 @@ interface ChatState {
   drainOfflineQueue: () => Promise<void>;
 
   /**
+   * Load the persisted offline queue from disk. Called once on app boot.
+   * Rebuilds the queued Tim bubbles in the message stream so pending
+   * sends are visible immediately. Safe to call multiple times.
+   */
+  hydrateOfflineQueue: () => Promise<void>;
+
+  /**
    * Append a system-emitted card (RideCard, InterruptCard, etc.) directly
    * into the chat stream outside of a user send. Used by the venue bridge
    * when the accelerometer detects a completed ride, or by any future
@@ -155,6 +163,49 @@ function contextPreview(filtered: SensorSnapshot): string[] {
 }
 
 /**
+ * Decide whether a caught send error is transient (worth retrying) or
+ * permanent (show the red banner, don't retry). Conservative on purpose:
+ * we'd rather retry a permanent failure and eventually give up than drop
+ * a message on a transient blip.
+ *
+ * Transient:
+ *   - Network-layer failures: fetch TypeError, "Network request failed",
+ *     timeouts, aborted requests, DNS errors.
+ *   - Upstream 5xx: Gemini/Kindroid/ElevenLabs temporary outages.
+ *   - Currently offline at catch time (a send started online and lost
+ *     connection mid-flight).
+ *
+ * Permanent:
+ *   - 4xx (bad auth, bad request, quota exceeded).
+ *   - Config/setup errors (missing env var, etc.).
+ */
+function isTransientSendError(err: unknown): boolean {
+  if (isOffline()) return true;
+  if (!(err instanceof Error)) return false;
+  const m = err.message.toLowerCase();
+  if (
+    m.includes("network request failed") ||
+    m.includes("failed to fetch") ||
+    m.includes("fetch failed") ||
+    m.includes("network error") ||
+    m.includes("connection") ||
+    m.includes("timeout") ||
+    m.includes("timed out") ||
+    m.includes("aborted") ||
+    m.includes("enotfound") ||
+    m.includes("econnreset") ||
+    m.includes("econnrefused") ||
+    m.includes("etimedout")
+  ) {
+    return true;
+  }
+  // HTTP status-ish: treat 5xx as transient (typically formatted like
+  // "→ HTTP 503" from our service layers).
+  if (/http\s*5\d\d/.test(m)) return true;
+  return false;
+}
+
+/**
  * Condense a long scene description to ≤160 chars framed from Eli's perspective,
  * suitable for Kindroid's current_scene field.
  */
@@ -208,6 +259,7 @@ export const useChat = create<ChatState>((set, get) => ({
       offlineQueue: [],
       draining: false,
     });
+    persistQueue([]);
   },
 
   loadDemo: (messages) => {
@@ -259,14 +311,16 @@ export const useChat = create<ChatState>((set, get) => ({
         queuedAt: new Date().toISOString(),
         retryCount: 0,
       };
+      const nextQueue = [...state.offlineQueue, entry];
       set({
         messages: [...state.messages, queuedMsg],
-        offlineQueue: [...state.offlineQueue, entry],
+        offlineQueue: nextQueue,
         pending: [],
         pendingSceneMemo: null,
         status: "idle",
         errorMessage: null,
       });
+      persistQueue(nextQueue);
       return;
     }
 
@@ -558,10 +612,40 @@ export const useChat = create<ChatState>((set, get) => ({
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      set({
-        status: "error",
-        errorMessage: msg,
-      });
+
+      if (isTransientSendError(err)) {
+        // Convert this send into a queued retry rather than a hard error.
+        // Flip the placeholder Tim bubble to queued:true, push a QueuedSend
+        // entry for the drainer to replay when connectivity is confirmed
+        // healthy again.
+        const entry: QueuedSend = {
+          id: timMsgId,
+          dialog: text,
+          attachments: [...attachments],
+          sceneMemo: state.pendingSceneMemo ?? null,
+          queuedAt: new Date().toISOString(),
+          retryCount: 0,
+          lastError: msg,
+        };
+        set((s) => {
+          const nextQueue = [...s.offlineQueue, entry];
+          persistQueue(nextQueue);
+          return {
+            messages: s.messages.map((m) =>
+              m.id === timMsgId && m.from === "tim" ? { ...m, queued: true } : m
+            ),
+            offlineQueue: nextQueue,
+            status: "idle",
+            errorMessage: null,
+          };
+        });
+        console.warn("[chatStore] transient send error, queued for retry:", msg);
+      } else {
+        set({
+          status: "error",
+          errorMessage: msg,
+        });
+      }
     }
   },
 
@@ -639,10 +723,14 @@ export const useChat = create<ChatState>((set, get) => ({
       for (const entry of queue) {
         // Remove the queued placeholder message; sendMessage will create
         // a fresh Tim bubble and run the full pipeline on replay.
-        set((s) => ({
-          messages: s.messages.filter((m) => m.id !== entry.id),
-          offlineQueue: s.offlineQueue.filter((q) => q.id !== entry.id),
-        }));
+        set((s) => {
+          const nextQueue = s.offlineQueue.filter((q) => q.id !== entry.id);
+          persistQueue(nextQueue);
+          return {
+            messages: s.messages.filter((m) => m.id !== entry.id),
+            offlineQueue: nextQueue,
+          };
+        });
         // Re-stage the original attachments + scene memo so sendMessage
         // sees them on its next run.
         set({
@@ -664,6 +752,33 @@ export const useChat = create<ChatState>((set, get) => ({
     } finally {
       set({ draining: false });
     }
+  },
+
+  hydrateOfflineQueue: async () => {
+    const persisted = await hydrateQueue();
+    if (persisted.length === 0) return;
+
+    // Rebuild the queued Tim bubbles from the persisted entries so the
+    // user sees their pending sends the moment the app opens.
+    const rebuiltMessages: ChatItem[] = persisted.map((entry) => ({
+      id: entry.id,
+      from: "tim",
+      time: timeString(new Date(entry.queuedAt)),
+      emote: "",
+      dialog: entry.dialog || "(queued audio)",
+      attachments: entry.attachments.map((a) => ({
+        type: a.kind,
+        localPath: a.localPath,
+        mimeType: a.mimeType,
+        duration: a.duration,
+      })),
+      queued: true,
+    }));
+
+    set((s) => ({
+      messages: [...rebuiltMessages, ...s.messages],
+      offlineQueue: persisted,
+    }));
   },
 
   captureScene: async (photoPaths, note) => {

@@ -17,6 +17,9 @@ export default function RootLayout() {
 
   useEffect(() => {
     hydratePeople();
+    // Restore any queued sends that were pending when the app was last killed.
+    // Done after people hydration so profile metadata is available for ID.
+    useChat.getState().hydrateOfflineQueue();
     // One-time wiring: VenueMode ↔ accelerometer ride detection + RideCard dispatch.
     installVenueBridge();
 

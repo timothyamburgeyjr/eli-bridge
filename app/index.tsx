@@ -26,11 +26,9 @@ import { PeopleRoster } from "@/components/people/PeopleRoster";
 import { EliAvatar } from "@/components/common/EliAvatar";
 import { SCENARIOS, getScenario, ScenarioId } from "@/data/scenarios";
 
-type Mode = "session" | "oneoff";
 type ChatSource = "live" | ScenarioId;
 
 export default function Main() {
-  const [mode, setMode] = useState<Mode>("session");
   const [showChat, setShowChat] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -129,14 +127,9 @@ export default function Main() {
       >
       <SessionHeader
         connected={connected}
-        mode={mode}
         onTogglePress={handleConnectToggle}
         onTimelinePress={() => setTimelineOpen(true)}
         onSettingsPress={() => setSettingsOpen(true)}
-        onModeChange={(m) => {
-          setMode(m);
-          setShowChat(false);
-        }}
       />
 
       {!showChat ? (
@@ -144,13 +137,9 @@ export default function Main() {
           <View style={{ marginBottom: 24 }}>
             <EliAvatar size={72} fontSize={32} />
           </View>
-          <Text style={styles.emptyTitle}>
-            {mode === "session" ? "What's on\nyour mind?" : "Drop something\nfor Eli"}
-          </Text>
+          <Text style={styles.emptyTitle}>What's on{"\n"}your mind?</Text>
           <Text style={styles.emptyBody}>
-            {mode === "session"
-              ? "Gemini enriches your words with context.\nEli responds as if he's there."
-              : "One message. One reply.\nNo session, no background context."}
+            Gemini enriches your words with context.{"\n"}Eli responds as if he's there.
           </Text>
 
           <ScrollView
@@ -274,7 +263,6 @@ export default function Main() {
       <StagingTray />
 
       <InputBar
-        mode={mode}
         pickerOpen={pickerOpen}
         onAttachTap={() => setPickerOpen((p) => !p)}
       />

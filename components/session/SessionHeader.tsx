@@ -1,5 +1,5 @@
-import React from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import React, { useState } from "react";
+import { View, Text, Pressable, StyleSheet, Modal } from "react-native";
 import { C } from "@/constants/theme";
 import { EliAvatar } from "@/components/common/EliAvatar";
 import { StatusIndicator } from "@/components/common/StatusIndicator";
@@ -12,8 +12,6 @@ interface Props {
   onTogglePress: () => void;
   onTimelinePress: () => void;
   onSettingsPress: () => void;
-  onModeChange: (m: "session" | "oneoff") => void;
-  mode: "session" | "oneoff";
 }
 
 export function SessionHeader({
@@ -21,8 +19,6 @@ export function SessionHeader({
   onTogglePress,
   onTimelinePress,
   onSettingsPress,
-  onModeChange,
-  mode,
 }: Props) {
   const driving = useMode((s) => s.driving);
   const enterDrivingManual = useMode((s) => s.enterDrivingManual);
@@ -50,6 +46,9 @@ export function SessionHeader({
       ? `Offline · ${queuedCount} queued`
       : "Offline"
     : "Connected";
+
+  const [modeMenuOpen, setModeMenuOpen] = useState(false);
+
   return (
     <View>
       <View style={styles.row}>
@@ -79,7 +78,7 @@ export function SessionHeader({
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          {connected && mode === "session" && (
+          {connected && (
             <Pressable
               onPress={toggleDriving}
               style={[
@@ -96,11 +95,9 @@ export function SessionHeader({
               </Text>
             </Pressable>
           )}
-          {mode === "session" && (
-            <Pressable onPress={onSettingsPress} style={styles.iconBtn}>
-              <Text style={{ fontSize: 16, color: C.textDim }}>⚙︎</Text>
-            </Pressable>
-          )}
+          <Pressable onPress={onSettingsPress} style={styles.iconBtn}>
+            <Text style={{ fontSize: 16, color: C.textDim }}>⚙︎</Text>
+          </Pressable>
           <Pressable
             onPress={onTogglePress}
             style={[
@@ -118,30 +115,38 @@ export function SessionHeader({
         </View>
       </View>
 
-      <View style={styles.modeToggle}>
-        {(["session", "oneoff"] as const).map((m) => (
-          <Pressable
-            key={m}
-            onPress={() => onModeChange(m)}
-            style={[
-              styles.modeBtn,
-              {
-                backgroundColor: mode === m ? C.accent : "transparent",
-              },
-            ]}
-          >
-            <Text
-              style={{
-                color: mode === m ? "#fff" : C.muted,
-                fontSize: 13,
-                fontWeight: mode === m ? "700" : "400",
-              }}
-            >
-              {m === "session" ? "Session" : "Quick Send"}
-            </Text>
-          </Pressable>
-        ))}
+      {/* Mode selector — single option for now, placeholder for v2 modes
+          (Movie Mode, etc.). Compact pill so it doesn't dominate the header. */}
+      <View style={styles.modeRow}>
+        <Pressable
+          onPress={() => setModeMenuOpen(true)}
+          style={styles.modeChip}
+          accessibilityLabel="Select mode"
+        >
+          <Text style={styles.modeChipText}>Session</Text>
+          <Text style={styles.modeChipChevron}>▾</Text>
+        </Pressable>
       </View>
+
+      <Modal
+        visible={modeMenuOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModeMenuOpen(false)}
+      >
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => setModeMenuOpen(false)}
+        />
+        <View style={styles.modeMenu}>
+          <View style={styles.modeMenuItem}>
+            <Text style={styles.modeMenuItemLabel}>Session</Text>
+            <Text style={styles.modeMenuCheck}>✓</Text>
+          </View>
+          <View style={styles.modeMenuDivider} />
+          <Text style={styles.modeMenuSoon}>More modes coming soon</Text>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -174,20 +179,59 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  modeToggle: {
+  modeRow: {
+    alignItems: "center",
+    paddingBottom: 8,
+  },
+  modeChip: {
     flexDirection: "row",
-    marginHorizontal: 20,
-    marginBottom: 6,
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 14,
+    backgroundColor: C.raised,
+    borderWidth: 1,
+    borderColor: C.border,
+  },
+  modeChipText: { color: C.text, fontSize: 12, fontWeight: "600" },
+  modeChipChevron: { color: C.muted, fontSize: 10 },
+  modeMenu: {
+    position: "absolute",
+    top: 88,
+    alignSelf: "center",
+    minWidth: 200,
     backgroundColor: C.raised,
     borderRadius: 14,
     borderWidth: 1,
     borderColor: C.border,
-    padding: 3,
+    paddingVertical: 6,
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 10,
   },
-  modeBtn: {
-    flex: 1,
-    paddingVertical: 8,
-    borderRadius: 11,
+  modeMenuItem: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  modeMenuItemLabel: { color: C.text, fontSize: 13, fontWeight: "600" },
+  modeMenuCheck: { color: C.accent, fontSize: 13 },
+  modeMenuDivider: {
+    height: 1,
+    backgroundColor: C.border,
+    marginHorizontal: 10,
+    marginVertical: 2,
+  },
+  modeMenuSoon: {
+    color: C.muted,
+    fontSize: 11,
+    fontStyle: "italic",
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
 });

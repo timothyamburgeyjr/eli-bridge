@@ -10,12 +10,11 @@ import {
 import { useChat } from "@/stores/chatStore";
 
 interface Props {
-  mode: "session" | "oneoff";
   onAttachTap: () => void;
   pickerOpen?: boolean;
 }
 
-export function InputBar({ mode, onAttachTap, pickerOpen }: Props) {
+export function InputBar({ onAttachTap, pickerOpen }: Props) {
   const [text, setText] = useState("");
   const [recording, setRecording] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
@@ -110,7 +109,7 @@ export function InputBar({ mode, onAttachTap, pickerOpen }: Props) {
         <TextInput
           value={text}
           onChangeText={setText}
-          placeholder={mode === "oneoff" ? "Drop a message for Eli…" : "Message Eli…"}
+          placeholder="Message Eli…"
           placeholderTextColor={C.muted}
           multiline
           style={styles.input}
