@@ -6,6 +6,8 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { View } from "react-native";
 import { C } from "@/constants/theme";
 import { usePeople } from "@/people/PeopleStore";
+import { DrivingOverlay } from "@/components/driving/DrivingOverlay";
+import { DrivingAutoBanner } from "@/components/driving/DrivingAutoBanner";
 
 export default function RootLayout() {
   const hydratePeople = usePeople((s) => s.hydrate);
@@ -25,6 +27,10 @@ export default function RootLayout() {
               contentStyle: { backgroundColor: C.bg },
             }}
           />
+          {/* Driving Mode overlay is rendered at the layout root so it's
+              visible above all screens, including Settings, modals, etc. */}
+          <DrivingAutoBanner />
+          <DrivingOverlay />
         </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>

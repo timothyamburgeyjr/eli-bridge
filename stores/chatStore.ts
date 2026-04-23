@@ -20,6 +20,8 @@ import { identifyFaces, FaceMatch } from "@/people/faceId";
 import { usePeople, Person } from "@/people/PeopleStore";
 import { getPersonContext, resetPersonContextCache } from "@/people/personContext";
 import { resolveOrCreateProfilePath } from "@/people/profileLinker";
+import { useMode } from "@/stores/modeStore";
+import { useSettings } from "@/stores/settingsStore";
 import type { SpeakerLabel, FaceLabel } from "@/types";
 
 export type SendStatus = "idle" | "assembling" | "sending" | "error";
@@ -200,6 +202,15 @@ export const useChat = create<ChatState>((set, get) => ({
       // ── Step 1: Gather live sensor snapshot (GPS + Places + Weather + Barometer)
       const sensors = state.sensorOverride ?? (await gatherSensorSnapshot());
       const history = buildHistory(state.messages);
+
+      // ── Step 1a: Evaluate behavioral mode transitions. VenueMode auto-
+      // entry/exit fires off the snapshot's placeType + GPS; driving auto-
+      // entry begins its 10s grace banner when activity is IN_VEHICLE. The
+      // actual confirm/cancel of that banner is owned by the UI layer.
+      const drivingAutoEnabled = useSettings.getState().drivingModeAuto;
+      const modeTransitions = useMode
+        .getState()
+        .evaluateTransitions(sensors, { drivingAutoEnabled });
 
       const images = await Promise.all(
         attachments.filter((a) => a.kind === "image").map(toInlineBlob)
@@ -382,8 +393,36 @@ export const useChat = create<ChatState>((set, get) => ({
         });
       }
 
+      // VenueMode transition card — announces entry/exit in the chat stream.
+      const modeCards: ChatItem[] = [];
+      if (modeTransitions.venueEntered) {
+        modeCards.push({
+          id: `venue-enter-${Date.now()}`,
+          from: "venuemode",
+          time: timeString(),
+          venueName: modeTransitions.venueEntered.name,
+          venueType: modeTransitions.venueEntered.placeType,
+          note: "Queue dwells suppressed · rides enabled",
+        } as unknown as ChatItem);
+      }
+      if (modeTransitions.venueExited) {
+        modeCards.push({
+          id: `venue-exit-${Date.now()}`,
+          from: "venuemode",
+          time: timeString(),
+          venueName: modeTransitions.venueExited.name,
+          venueType: modeTransitions.venueExited.placeType,
+          note: "Exited — venue mode off",
+        } as unknown as ChatItem);
+      }
+
       set({
-        messages: [...get().messages.slice(0, -1), finalizedTim, ...unknownCards],
+        messages: [
+          ...get().messages.slice(0, -1),
+          ...modeCards,
+          finalizedTim,
+          ...unknownCards,
+        ],
         status: "sending",
         lastEmoteChars: ambient.length,
         lastFilteredContext: contextPreview(assembled.filteredSensors),

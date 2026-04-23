@@ -4,7 +4,9 @@ import { updateScene as kindroidUpdateScene } from "@/services/kindroid";
 import { setSessionContext } from "@/services/gemini";
 import { gatherSensorSnapshot } from "./liveSensors";
 import { buildJournal, journalFilename, BuiltJournal } from "./journalBuilder";
+import { startDrivingPoll, stopDrivingPoll } from "./drivingPoller";
 import { resetPersonContextCache } from "@/people/personContext";
+import { useMode } from "@/stores/modeStore";
 import type { ChatItem } from "@/components/chat/ChatStream";
 
 const BIOGRAPHY_PATH = "08 - Elias Reed/biography.md";
@@ -99,6 +101,11 @@ export const useSession = create<SessionState>((set, get) => ({
     // (via chatStore.clear()) so session-start doesn't clobber existing chat.
     resetPersonContextCache();
 
+    // Start background GPS polling so driving-mode auto-detection fires even
+    // when Tim isn't actively sending messages (the common case — he starts
+    // a drive and doesn't talk to Eli immediately).
+    startDrivingPoll();
+
     // Fire both external I/O in parallel — neither gate the session becoming active
     const bioPromise = (async () => {
       if (!isVaultConfigured()) {
@@ -141,6 +148,11 @@ export const useSession = create<SessionState>((set, get) => ({
     const endedAt = new Date().toISOString();
     set({ status: "ending", endedAt });
 
+    // Polling + driving/venue state are session-scoped — drop them on end.
+    stopDrivingPoll();
+    useMode.getState().exitDriving();
+    useMode.getState().exitVenue();
+
     try {
       const journal = await buildJournal(messages, startedAt, endedAt);
       set({ journal, status: "journal-ready" });
@@ -175,6 +187,9 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   discardJournal: () => {
+    stopDrivingPoll();
+    useMode.getState().exitDriving();
+    useMode.getState().exitVenue();
     set({
       status: "idle",
       sessionId: null,

@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
 import { EliAvatar } from "@/components/common/EliAvatar";
 import { StatusIndicator } from "@/components/common/StatusIndicator";
+import { useMode } from "@/stores/modeStore";
 
 interface Props {
   connected: boolean;
@@ -21,6 +22,13 @@ export function SessionHeader({
   onModeChange,
   mode,
 }: Props) {
+  const driving = useMode((s) => s.driving);
+  const enterDrivingManual = useMode((s) => s.enterDrivingManual);
+  const exitDriving = useMode((s) => s.exitDriving);
+  const toggleDriving = () => {
+    if (driving) exitDriving();
+    else enterDrivingManual();
+  };
   return (
     <View>
       <View style={styles.row}>
@@ -50,6 +58,23 @@ export function SessionHeader({
         </View>
 
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          {connected && mode === "session" && (
+            <Pressable
+              onPress={toggleDriving}
+              style={[
+                styles.iconBtn,
+                driving && {
+                  backgroundColor: C.accent + "22",
+                  borderColor: C.accent + "66",
+                },
+              ]}
+              accessibilityLabel={driving ? "Exit Driving Mode" : "Enter Driving Mode"}
+            >
+              <Text style={{ fontSize: 16, color: driving ? C.accent : C.textDim }}>
+                🚗
+              </Text>
+            </Pressable>
+          )}
           {mode === "session" && (
             <Pressable onPress={onSettingsPress} style={styles.iconBtn}>
               <Text style={{ fontSize: 16, color: C.textDim }}>⚙︎</Text>

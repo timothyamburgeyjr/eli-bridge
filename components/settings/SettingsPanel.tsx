@@ -68,8 +68,7 @@ export function SettingsPanel({ visible, onClose, onPeoplePress, onDiagnosticsPr
     {
       heading: "Session Behavior",
       toggles: [
-        { key: "pulseMode", icon: "💤", label: "Pulse Mode (text-only, 15 min)" },
-        { key: "safetyModeAuto", icon: "🚗", label: "Safety Mode (auto on drive)" },
+        { key: "drivingModeAuto", icon: "🚗", label: "Driving Mode (auto on drive)" },
       ],
     },
     {
