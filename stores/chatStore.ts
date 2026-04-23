@@ -3,7 +3,7 @@ import type { Content } from "@google/generative-ai";
 import type { SensorSnapshot } from "@/types";
 import type { ChatItem } from "@/components/chat/ChatStream";
 import { EmoteAssembler } from "@/session/EmoteAssembler";
-import { STUB_SENSOR_SNAPSHOT } from "@/session/sensorStub";
+import { gatherSensorSnapshot } from "@/session/liveSensors";
 import { parseAssembledMessage } from "@/services/gemini";
 import { sendMessage as kindroidSend, updateScene as kindroidUpdateScene } from "@/services/kindroid";
 import { analyzeScene as geminiAnalyzeScene } from "@/services/gemini";
@@ -178,8 +178,8 @@ export const useChat = create<ChatState>((set, get) => ({
     });
 
     try {
-      // ── Step 1: Gemini assembles the emote (with attachments as inline_data)
-      const sensors = state.sensorOverride ?? STUB_SENSOR_SNAPSHOT;
+      // ── Step 1: Gather live sensor snapshot (GPS + Places + Weather + Barometer)
+      const sensors = state.sensorOverride ?? (await gatherSensorSnapshot());
       const history = buildHistory(state.messages);
 
       const images = await Promise.all(

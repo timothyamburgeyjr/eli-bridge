@@ -20,6 +20,7 @@ import { InputBar } from "@/components/chat/InputBar";
 import { StagingTray } from "@/components/chat/StagingTray";
 import { MediaPicker } from "@/components/capture/MediaPicker";
 import { CaptureModal, CaptureMode } from "@/components/capture/CaptureModal";
+import { DiagnosticsPanel } from "@/components/diagnostics/DiagnosticsPanel";
 import { EliAvatar } from "@/components/common/EliAvatar";
 import { SCENARIOS, getScenario, ScenarioId } from "@/data/scenarios";
 
@@ -34,6 +35,7 @@ export default function Main() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [captureMode, setCaptureMode] = useState<CaptureMode | null>(null);
+  const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [source, setSource] = useState<ChatSource>("live");
 
   const liveMessages = useChat((s) => s.messages);
@@ -215,7 +217,15 @@ export default function Main() {
         stats={demoStats}
         onClose={() => setTimelineOpen(false)}
       />
-      <SettingsPanel visible={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      <SettingsPanel
+        visible={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        onDiagnosticsPress={() => {
+          setSettingsOpen(false);
+          setDiagnosticsOpen(true);
+        }}
+      />
+      <DiagnosticsPanel visible={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
 
       <MediaPicker
         visible={pickerOpen}

@@ -27,9 +27,10 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onPeoplePress?: () => void;
+  onDiagnosticsPress?: () => void;
 }
 
-export function SettingsPanel({ visible, onClose, onPeoplePress }: Props) {
+export function SettingsPanel({ visible, onClose, onPeoplePress, onDiagnosticsPress }: Props) {
   const s = useSettings();
 
   const sections: Section[] = [
@@ -70,6 +71,15 @@ export function SettingsPanel({ visible, onClose, onPeoplePress }: Props) {
         { key: "pulseMode", icon: "💤", label: "Pulse Mode (text-only, 15 min)" },
         { key: "safetyModeAuto", icon: "🚗", label: "Safety Mode (auto on drive)" },
       ],
+    },
+    {
+      heading: "Dev",
+      link: {
+        icon: "🔬",
+        label: "Service Diagnostics",
+        hint: "Run checks →",
+        onPress: onDiagnosticsPress ?? (() => {}),
+      },
     },
   ];
 
