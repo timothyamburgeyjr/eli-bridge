@@ -26,7 +26,7 @@ import {
   AUDIOSNAP_DURATION_SEC,
 } from "@/services/audio";
 
-export type CaptureMode = "photo" | "video" | "audio" | "scene";
+export type CaptureMode = "photo" | "audio" | "scene";
 
 interface Props {
   visible: boolean;
@@ -77,9 +77,14 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
     };
   }, []);
 
-  const needsCamera = mode === "photo" || mode === "video" || mode === "scene";
-  const needsMic = mode === "audio" || mode === "photo" || mode === "video";
+  const needsCamera = mode === "photo" || mode === "scene";
+  const needsMic = mode === "audio" || mode === "photo";
 
+  // Request permissions once per mode toggle when missing. Omit the
+  // request* function refs from deps — their identities change on every
+  // render, which previously re-fired this effect constantly and caused
+  // the CameraView below to remount (visible as screen flicker) whenever
+  // the permission hook's internal state churned.
   useEffect(() => {
     if (!visible) return;
     if (needsCamera && !cameraPerm?.granted) {
@@ -88,7 +93,8 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
     if (needsMic && !micPerm?.granted) {
       requestMicPerm();
     }
-  }, [visible, needsCamera, needsMic, cameraPerm?.granted, micPerm?.granted, requestCameraPerm, requestMicPerm]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, needsCamera, needsMic, cameraPerm?.granted, micPerm?.granted]);
 
   // ── Photo + AudioSnap ─────────────────────────────────────────────
   const handlePhotoShutter = async () => {
@@ -137,7 +143,7 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
         }
       }
 
-      if (mode === "photo" || mode === "video") {
+      if (mode === "photo") {
         // Photo mode: close after successful shot (scene mode stays open for more shots)
         onClose();
       }
@@ -187,18 +193,19 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
   };
 
   // ── Scene: finalize captured photos + note ────────────────────────
-  const handleSceneDone = async () => {
+  // Fire-and-forget: close the modal immediately so the user isn't staring
+  // at a frozen screen while Gemini Pro chews on the images (2-10s). The
+  // existing scene-status banner in app/index.tsx surfaces progress via
+  // chatStore.sceneStatus, and the card appears in the stream when the
+  // capture completes. Previously this awaited captureScene inline which
+  // could leave the modal stuck when Gemini was slow, forcing a back-press
+  // that dismissed the UI but didn't cancel the in-flight request.
+  const handleSceneDone = () => {
     if (capturedPhotos.length === 0) return;
-    setBusy(true);
-    try {
-      await captureScene(
-        capturedPhotos.map((p) => p.uri),
-        sceneNote.trim() || undefined
-      );
-    } finally {
-      setBusy(false);
-      onClose();
-    }
+    const photos = capturedPhotos.map((p) => p.uri);
+    const note = sceneNote.trim() || undefined;
+    onClose();
+    captureScene(photos, note);
   };
 
   const removePhoto = (idx: number) => {
@@ -231,7 +238,16 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
               </Text>
             </View>
           ) : showCamera ? (
-            <CameraView ref={cameraRef} style={styles.camera} facing="back" />
+            // Stable key so RN doesn't tear down + remount the native camera
+            // surface when parent state churns (flashing, busy, etc). Before
+            // adding this, brief camera flicker was reported when the
+            // permission useEffect re-fired mid-session.
+            <CameraView
+              key="capture-camera"
+              ref={cameraRef}
+              style={styles.camera}
+              facing="back"
+            />
           ) : (
             <View style={styles.permView}>
               <Text style={styles.permText}>
@@ -282,7 +298,7 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
 
         {/* Mode tabs */}
         <View style={styles.modeRow}>
-          {(["photo", "video", "audio", "scene"] as CaptureMode[]).map((m) => (
+          {(["photo", "audio", "scene"] as CaptureMode[]).map((m) => (
             <Pressable
               key={m}
               onPress={() => setMode(m)}
@@ -363,13 +379,11 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
 
 const ICON: Record<CaptureMode, string> = {
   photo: "📷",
-  video: "🎥",
   audio: "🎙️",
   scene: "🎬",
 };
 const LABEL: Record<CaptureMode, string> = {
   photo: "Photo",
-  video: "Video",
   audio: "Audio",
   scene: "Scene",
 };

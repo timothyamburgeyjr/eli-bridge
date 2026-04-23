@@ -11,7 +11,6 @@ interface Props {
 
 const OPTIONS: { mode: CaptureMode; icon: string; label: string; hint?: string }[] = [
   { mode: "photo", icon: "📷", label: "Take Photo", hint: "+ 5s AudioSnap" },
-  { mode: "video", icon: "🎥", label: "Record Video" },
   { mode: "audio", icon: "🎙️", label: "Record Audio" },
   { mode: "scene", icon: "🎬", label: "Capture Scene", hint: "Silent context push" },
 ];

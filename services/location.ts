@@ -47,6 +47,12 @@ export async function ensureLocationPermission(): Promise<boolean> {
  * Get the current GPS fix as a `LocationData`. Returns null on permission
  * denial, timeout, or location services being off — caller should fall back
  * gracefully rather than failing the whole message send.
+ *
+ * Uses `Accuracy.High` (pure GPS, ~5m accuracy) rather than `Balanced` to
+ * avoid the Wi-Fi-pinning problem: Balanced blends network-based location
+ * which tends to snap to the last Wi-Fi access point the device saw, which
+ * means a short walk away from home stays reporting as "home" until cell
+ * tower triangulation catches up.
  */
 export async function getCurrentLocation(): Promise<LocationData | null> {
   try {
@@ -54,9 +60,13 @@ export async function getCurrentLocation(): Promise<LocationData | null> {
     if (!granted) return null;
 
     const pos = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.Balanced,
+      accuracy: Location.Accuracy.High,
+      // mayShowUserSettingsDialog: false so a low-power device setting
+      // doesn't silently degrade us back to coarse locations.
+      mayShowUserSettingsDialog: false,
     });
-    return {
+
+    const loc = {
       latitude: pos.coords.latitude,
       longitude: pos.coords.longitude,
       altitude: pos.coords.altitude ?? undefined,
@@ -65,7 +75,21 @@ export async function getCurrentLocation(): Promise<LocationData | null> {
       accuracy: pos.coords.accuracy ?? 0,
       timestamp: pos.timestamp,
     };
-  } catch {
+
+    // Diagnostic log — shows whether isAtHome is firing where it should,
+    // and how accurate the fix is. Grep `[gps]` in logcat during a walk
+    // to see fix drift over time.
+    const dist = distanceMeters(
+      { lat: loc.latitude, lon: loc.longitude },
+      HOME_COORDS
+    );
+    console.log(
+      `[gps] fix: ${loc.latitude.toFixed(5)}, ${loc.longitude.toFixed(5)} ±${Math.round(loc.accuracy)}m · ${Math.round(dist)}m from home · ${dist <= HOME_RADIUS_M ? "AT_HOME" : "AWAY"} · speed ${loc.speed?.toFixed(1) ?? "?"}m/s`
+    );
+
+    return loc;
+  } catch (err) {
+    console.warn("[gps] getCurrentLocation failed:", err);
     return null;
   }
 }
