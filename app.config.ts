@@ -30,19 +30,19 @@ export default ({ config }: ConfigContext): ExpoConfig =>
       package: "dev.amburgey.elibridge",
       predictiveBackGestureEnabled: false,
       edgeToEdgeEnabled: true,
-      // JSC instead of Hermes — Hermes compiler on EAS Linux builds keeps
-      // failing at `:app:createBundleReleaseJsAndAssets` with
-      // "A problem occurred starting process '.../hermesc'" even with the
-      // chmod post-install fix. Using JSC skips hermesc entirely. Cost:
-      // slightly slower cold start (~100-200ms) and larger APK (~3MB),
-      // which is fine for an alpha build.
-      jsEngine: "jsc",
     },
     ios: {
       bundleIdentifier: "dev.amburgey.elibridge",
       supportsTablet: false,
     },
-    plugins: ["expo-router", "expo-secure-store"],
+    plugins: [
+      "expo-router",
+      "expo-secure-store",
+      // Force hermesV1Enabled=false so RN 0.82 picks the real hermesc
+      // at node_modules/react-native/sdks/hermesc instead of the empty
+      // stub at node_modules/hermes-compiler. See plugin source for details.
+      "./config-plugins/disable-hermes-v1.js",
+    ],
     experiments: {
       typedRoutes: true,
     },
