@@ -4,6 +4,8 @@ import { C } from "@/constants/theme";
 import { EliAvatar } from "@/components/common/EliAvatar";
 import { StatusIndicator } from "@/components/common/StatusIndicator";
 import { useMode } from "@/stores/modeStore";
+import { useConnection } from "@/stores/connectionStore";
+import { useChat } from "@/stores/chatStore";
 
 interface Props {
   connected: boolean;
@@ -29,6 +31,25 @@ export function SessionHeader({
     if (driving) exitDriving();
     else enterDrivingManual();
   };
+
+  // Connection awareness — a connected session on a degraded network
+  // shows amber + "Offline · N queued" to signal that sends are queuing
+  // rather than failing silently.
+  const netState = useConnection((s) => s.state);
+  const queuedCount = useChat((s) => s.offlineQueue.length);
+  const offline = netState === "offline";
+  const effectiveStatus: "green" | "amber" | "red" = !connected
+    ? "red"
+    : offline
+    ? "amber"
+    : "green";
+  const effectiveLabel = !connected
+    ? "Disconnected"
+    : offline
+    ? queuedCount > 0
+      ? `Offline · ${queuedCount} queued`
+      : "Offline"
+    : "Connected";
   return (
     <View>
       <View style={styles.row}>
@@ -52,7 +73,7 @@ export function SessionHeader({
           <View>
             <Text style={{ fontSize: 15, fontWeight: "700", color: C.text }}>Eli Bridge</Text>
             <View style={{ marginTop: 2 }}>
-              <StatusIndicator status={connected ? "green" : "red"} label={connected ? "Connected" : "Disconnected"} />
+              <StatusIndicator status={effectiveStatus} label={effectiveLabel} />
             </View>
           </View>
         </View>

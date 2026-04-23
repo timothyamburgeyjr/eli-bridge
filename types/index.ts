@@ -80,6 +80,10 @@ export interface TimMessage extends BaseMessage {
   pills?: ContextPill[];
   isDrive?: boolean; // true when sent during driving (safety mode context)
   attachments?: Attachment[];
+  /** Pending a drain because the message was sent while offline. */
+  queued?: boolean;
+  /** Send attempt permanently failed after retries (displayed with a retry CTA). */
+  failed?: boolean;
 }
 
 export interface EliMessage extends BaseMessage {

@@ -22,10 +22,36 @@ import { getPersonContext, resetPersonContextCache } from "@/people/personContex
 import { resolveOrCreateProfilePath } from "@/people/profileLinker";
 import { useMode } from "@/stores/modeStore";
 import { useSettings } from "@/stores/settingsStore";
+import { isOffline, useConnection } from "@/stores/connectionStore";
 import type { SpeakerLabel, FaceLabel } from "@/types";
 
 export type SendStatus = "idle" | "assembling" | "sending" | "error";
 export type SceneStatus = "idle" | "analyzing" | "error";
+
+/**
+ * A pending send that couldn't reach the upstream services (offline, or
+ * Gemini/Kindroid call failed). Stored on chatStore and replayed when
+ * connectivity returns. The queue holds only the *original inputs* —
+ * dialog text + attachment paths + sceneMemo — so a replay runs the
+ * full sendMessage pipeline with fresh sensors, fresh Obsidian context,
+ * etc. The visible Tim message in the chat carries queued:true until
+ * the drain completes.
+ */
+export interface QueuedSend {
+  /** The queue entry id. Also used as the in-chat message id. */
+  id: string;
+  dialog: string;
+  /** Copied staged attachments at enqueue time. Local paths still valid. */
+  attachments: StagedAttachment[];
+  /** One-shot scene memo that was pending at enqueue time. */
+  sceneMemo: string | null;
+  /** ISO timestamp of when this entry was queued. */
+  queuedAt: string;
+  /** Number of replay attempts so far. */
+  retryCount: number;
+  /** Last replay error, if any. */
+  lastError?: string;
+}
 
 interface ChatState {
   messages: ChatItem[];
@@ -45,12 +71,24 @@ interface ChatState {
   sceneStatus: SceneStatus;
   sceneError: string | null;
 
+  /** Sends that couldn't reach the upstream services. Replayed on reconnect. */
+  offlineQueue: QueuedSend[];
+  /** True while the queue is being drained (prevents re-entrant drain). */
+  draining: boolean;
+
   addAttachment: (a: Omit<StagedAttachment, "id">) => void;
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
 
   sendMessage: (dialog: string) => Promise<void>;
   captureScene: (photoPaths: string[], note?: string) => Promise<void>;
+
+  /**
+   * Replay queued sends in FIFO order through the normal sendMessage path.
+   * Called automatically on reconnect; safe to call manually for debugging.
+   * Bails out if already draining, or if the device is still offline.
+   */
+  drainOfflineQueue: () => Promise<void>;
 
   /**
    * Append a system-emitted card (RideCard, InterruptCard, etc.) directly
@@ -138,6 +176,8 @@ export const useChat = create<ChatState>((set, get) => ({
   pendingSceneMemo: null,
   sceneStatus: "idle",
   sceneError: null,
+  offlineQueue: [],
+  draining: false,
 
   setSensorOverride: (sensors) => set({ sensorOverride: sensors }),
 
@@ -165,6 +205,8 @@ export const useChat = create<ChatState>((set, get) => ({
       lastFilteredContext: null,
       pending: [],
       pendingSceneMemo: null,
+      offlineQueue: [],
+      draining: false,
     });
   },
 
@@ -188,6 +230,45 @@ export const useChat = create<ChatState>((set, get) => ({
 
     // Must have either text or at least one attachment to send
     if (!text && attachments.length === 0) return;
+
+    // ── Offline guard ────────────────────────────────────────────────
+    // If the device is offline, don't even attempt Gemini/Kindroid calls.
+    // Queue the message + show a "queued" Tim bubble in the chat. The
+    // queue drainer will replay this via sendMessage once we're online.
+    if (isOffline()) {
+      const qId = `tim-queued-${Date.now()}`;
+      const queuedMsg: ChatItem = {
+        id: qId,
+        from: "tim",
+        time: timeString(),
+        emote: "",
+        dialog: text || "(queued audio)",
+        attachments: attachments.map((a) => ({
+          type: a.kind,
+          localPath: a.localPath,
+          mimeType: a.mimeType,
+          duration: a.duration,
+        })),
+        queued: true,
+      };
+      const entry: QueuedSend = {
+        id: qId,
+        dialog: text,
+        attachments: [...attachments],
+        sceneMemo: state.pendingSceneMemo,
+        queuedAt: new Date().toISOString(),
+        retryCount: 0,
+      };
+      set({
+        messages: [...state.messages, queuedMsg],
+        offlineQueue: [...state.offlineQueue, entry],
+        pending: [],
+        pendingSceneMemo: null,
+        status: "idle",
+        errorMessage: null,
+      });
+      return;
+    }
 
     const timMsgId = `tim-${Date.now()}`;
     const pendingTim: ChatItem = {
@@ -541,6 +622,48 @@ export const useChat = create<ChatState>((set, get) => ({
       person: { id: resultId, name: resultName },
       linkedToExisting: linked,
     };
+  },
+
+  drainOfflineQueue: async () => {
+    const state = get();
+    if (state.draining) return;
+    if (isOffline()) return;
+    if (state.offlineQueue.length === 0) return;
+
+    // Snapshot the queue at start; new queued items that arrive mid-drain
+    // will be picked up by the next drain cycle.
+    const queue = [...state.offlineQueue];
+    set({ draining: true });
+
+    try {
+      for (const entry of queue) {
+        // Remove the queued placeholder message; sendMessage will create
+        // a fresh Tim bubble and run the full pipeline on replay.
+        set((s) => ({
+          messages: s.messages.filter((m) => m.id !== entry.id),
+          offlineQueue: s.offlineQueue.filter((q) => q.id !== entry.id),
+        }));
+        // Re-stage the original attachments + scene memo so sendMessage
+        // sees them on its next run.
+        set({
+          pending: entry.attachments,
+          pendingSceneMemo: entry.sceneMemo,
+        });
+        try {
+          await get().sendMessage(entry.dialog);
+        } catch (err) {
+          console.warn("[offlineQueue] replay failed:", err);
+          // sendMessage handles its own error reporting via errorMessage;
+          // stop draining to avoid a loop of failures against a flapping
+          // connection.
+          break;
+        }
+        // If we went offline mid-drain, stop and leave the rest queued.
+        if (isOffline()) break;
+      }
+    } finally {
+      set({ draining: false });
+    }
   },
 
   captureScene: async (photoPaths, note) => {

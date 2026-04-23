@@ -9,6 +9,8 @@ import { usePeople } from "@/people/PeopleStore";
 import { DrivingOverlay } from "@/components/driving/DrivingOverlay";
 import { DrivingAutoBanner } from "@/components/driving/DrivingAutoBanner";
 import { installVenueBridge } from "@/session/venueBridge";
+import { useConnection } from "@/stores/connectionStore";
+import { useChat } from "@/stores/chatStore";
 
 export default function RootLayout() {
   const hydratePeople = usePeople((s) => s.hydrate);
@@ -17,6 +19,15 @@ export default function RootLayout() {
     hydratePeople();
     // One-time wiring: VenueMode ↔ accelerometer ride detection + RideCard dispatch.
     installVenueBridge();
+
+    // Connectivity monitoring + offline-queue drain on reconnect.
+    useConnection.getState().install();
+    const unsubscribe = useConnection
+      .getState()
+      .onReconnect(() => {
+        useChat.getState().drainOfflineQueue();
+      });
+    return unsubscribe;
   }, [hydratePeople]);
 
   return (

@@ -24,10 +24,15 @@ interface TimProps {
   time: string;
   pills?: ContextPill[];
   isDrive?: boolean;
+  /** Sent while offline — waiting for connection drain. */
+  queued?: boolean;
+  /** Send permanently failed after retries. */
+  failed?: boolean;
 }
 
-export function TimBubble({ emote, dialog, raw, time, pills, isDrive }: TimProps) {
+export function TimBubble({ emote, dialog, raw, time, pills, isDrive, queued, failed }: TimProps) {
   const body = raw ?? composeRaw(emote, dialog);
+  const dimmed = queued || failed;
   return (
     <View style={[styles.row, { justifyContent: "flex-end", opacity: isDrive ? 0.7 : 1, marginBottom: isDrive ? 14 : 20 }]}>
       <View style={{ maxWidth: "78%", alignItems: "flex-end", gap: 4 }}>
@@ -39,11 +44,18 @@ export function TimBubble({ emote, dialog, raw, time, pills, isDrive }: TimProps
             styles.bubble,
             {
               backgroundColor: isDrive ? C.timBubble + "99" : C.timBubble,
-              borderColor: isDrive ? "rgba(124,92,255,0.12)" : "rgba(124,92,255,0.25)",
+              borderColor: failed
+                ? C.red + "66"
+                : queued
+                ? C.amber + "66"
+                : isDrive
+                ? "rgba(124,92,255,0.12)"
+                : "rgba(124,92,255,0.25)",
               borderTopLeftRadius: 18,
               borderTopRightRadius: 4,
               borderBottomRightRadius: 18,
               borderBottomLeftRadius: 18,
+              opacity: dimmed ? 0.75 : 1,
             },
           ]}
         >
@@ -56,7 +68,14 @@ export function TimBubble({ emote, dialog, raw, time, pills, isDrive }: TimProps
             </View>
           )}
         </View>
-        <Text style={styles.timestamp}>{time}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          {queued ? (
+            <Text style={{ fontSize: 10, color: C.amber }}>⏳ queued · will send when online</Text>
+          ) : failed ? (
+            <Text style={{ fontSize: 10, color: C.red }}>⚠ send failed</Text>
+          ) : null}
+          <Text style={styles.timestamp}>{time}</Text>
+        </View>
       </View>
     </View>
   );

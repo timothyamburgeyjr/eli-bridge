@@ -21,6 +21,8 @@ function renderRow(item: ChatItem) {
           time={item.time}
           pills={item.pills}
           isDrive={item.isDrive}
+          queued={item.queued}
+          failed={item.failed}
         />
       );
     case "eli":
