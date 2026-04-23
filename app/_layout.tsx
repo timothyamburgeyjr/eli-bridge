@@ -8,12 +8,15 @@ import { C } from "@/constants/theme";
 import { usePeople } from "@/people/PeopleStore";
 import { DrivingOverlay } from "@/components/driving/DrivingOverlay";
 import { DrivingAutoBanner } from "@/components/driving/DrivingAutoBanner";
+import { installVenueBridge } from "@/session/venueBridge";
 
 export default function RootLayout() {
   const hydratePeople = usePeople((s) => s.hydrate);
 
   useEffect(() => {
     hydratePeople();
+    // One-time wiring: VenueMode ↔ accelerometer ride detection + RideCard dispatch.
+    installVenueBridge();
   }, [hydratePeople]);
 
   return (

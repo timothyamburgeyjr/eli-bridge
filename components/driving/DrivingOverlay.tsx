@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -6,6 +6,8 @@ import {
   StyleSheet,
   ActivityIndicator,
   Modal,
+  Animated,
+  Easing,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAudioRecorder } from "expo-audio";
@@ -82,24 +84,60 @@ export function DrivingOverlay() {
     }
   }, [driving, messages, playEli]);
 
-  const lastTim = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.from === "tim") return m;
-    }
-    return null;
-  }, [messages]);
+  // TTS lifecycle from audioStore — we need to block recording while audio
+  // is generating/playing, and let a tap on the screen stop playback.
+  const audioEntry = useAudio((s) =>
+    s.currentMessageId ? s.cache[s.currentMessageId] : undefined
+  );
+  const stopAudio = useAudio((s) => s.stop);
+  const audioGenerating = audioEntry?.status === "generating";
+  const audioPlaying = audioEntry?.status === "playing";
 
-  const lastEli = useMemo(() => {
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const m = messages[i];
-      if (m.from === "eli") return m;
+  // Pulse animation on the status line while Gemini/Kindroid/ElevenLabs are
+  // working so the screen feels alive (Tim can glance at it without pulling
+  // focus from the road). Steady (no pulse) while Eli is actually speaking.
+  const pulse = useRef(new Animated.Value(1)).current;
+  const waiting =
+    chatStatus === "assembling" ||
+    chatStatus === "sending" ||
+    audioGenerating;
+  const thinking = waiting || audioPlaying;
+  useEffect(() => {
+    if (!waiting) {
+      pulse.setValue(1);
+      return;
     }
-    return null;
-  }, [messages]);
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 0.35,
+          duration: 600,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 600,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [waiting, pulse]);
 
   const handleTap = async () => {
+    // Block taps while Gemini is assembling or Kindroid is relaying.
     if (chatStatus === "assembling" || chatStatus === "sending") return;
+
+    // While ElevenLabs is generating, the audio isn't playable yet — no-op.
+    // As soon as it starts playing, a tap should interrupt + return to idle.
+    if (audioGenerating) return;
+    if (audioPlaying) {
+      stopAudio();
+      return;
+    }
 
     if (recording) {
       // Stop + send
@@ -152,9 +190,13 @@ export function DrivingOverlay() {
 
   const statusLine =
     chatStatus === "assembling"
-      ? "Assembling emote…"
+      ? "Gemini thinking…"
       : chatStatus === "sending"
-      ? "Eli is thinking…"
+      ? "Eli thinking…"
+      : audioGenerating
+      ? "Preparing Eli's voice…"
+      : audioPlaying
+      ? "Eli speaking · tap to stop"
       : recording
       ? `Recording · ${formatTime(elapsed)} · tap anywhere to send`
       : "Tap anywhere to speak";
@@ -172,37 +214,20 @@ export function DrivingOverlay() {
           </Pressable>
         </View>
 
-        {/* Body — tap anywhere */}
+        {/* Body — tap anywhere. No conversation text; feedback is via the
+            central indicator, the flashing status line, and ElevenLabs audio. */}
         <Pressable onPress={handleTap} style={styles.body}>
-          {/* Last conversation turns */}
-          <View style={styles.turns}>
-            {lastTim ? (
-              <Text style={styles.timTurn} numberOfLines={3}>
-                You: {lastTim.dialog}
-              </Text>
-            ) : null}
-            {lastEli ? (
-              <Text style={styles.eliTurn} numberOfLines={6}>
-                Eli: {lastEli.dialog}
-              </Text>
-            ) : (
-              <Text style={styles.eliTurnPlaceholder}>
-                Eli will speak your first reply.
-              </Text>
-            )}
-          </View>
-
-          {/* Giant center indicator */}
           <View
             style={[
               styles.indicator,
               recording && styles.indicatorRecording,
-              (chatStatus === "assembling" || chatStatus === "sending") &&
-                styles.indicatorBusy,
+              thinking && styles.indicatorBusy,
             ]}
           >
-            {chatStatus === "assembling" || chatStatus === "sending" ? (
+            {waiting ? (
               <ActivityIndicator size="large" color={C.accent} />
+            ) : audioPlaying ? (
+              <Text style={styles.indicatorGlyph}>🔊</Text>
             ) : (
               <Text style={styles.indicatorGlyph}>
                 {recording ? "■" : "🎙️"}
@@ -210,14 +235,16 @@ export function DrivingOverlay() {
             )}
           </View>
 
-          <Text
+          <Animated.Text
             style={[
               styles.statusLine,
               recording && { color: C.red, fontWeight: "700" },
+              waiting && { color: C.accent, fontWeight: "600", opacity: pulse },
+              audioPlaying && { color: C.accent, fontWeight: "600" },
             ]}
           >
             {statusLine}
-          </Text>
+          </Animated.Text>
 
           {error ? <Text style={styles.error}>⚠ {error}</Text> : null}
         </Pressable>
@@ -257,27 +284,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 20,
     alignItems: "center",
-    justifyContent: "space-between",
-  },
-  turns: {
-    width: "100%",
-    gap: 14,
-  },
-  timTurn: {
-    fontSize: 14,
-    color: C.muted,
-    lineHeight: 20,
-  },
-  eliTurn: {
-    fontSize: 22,
-    color: C.text,
-    lineHeight: 30,
-    fontWeight: "500",
-  },
-  eliTurnPlaceholder: {
-    fontSize: 16,
-    color: C.muted,
-    fontStyle: "italic",
+    justifyContent: "center",
+    gap: 28,
   },
   indicator: {
     width: 200,

@@ -53,6 +53,14 @@ interface ChatState {
   captureScene: (photoPaths: string[], note?: string) => Promise<void>;
 
   /**
+   * Append a system-emitted card (RideCard, InterruptCard, etc.) directly
+   * into the chat stream outside of a user send. Used by the venue bridge
+   * when the accelerometer detects a completed ride, or by any future
+   * passive detector that needs to surface a card mid-session.
+   */
+  appendSystemCard: (card: ChatItem) => void;
+
+  /**
    * Commit an UnknownPersonCard's embedding to a named Person. Handles
    * cross-modal linking — if the name matches an existing Person card, the
    * embedding gets attached to that same card (so a voice-only Hank gains
@@ -142,6 +150,9 @@ export const useChat = create<ChatState>((set, get) => ({
     set((s) => ({ pending: s.pending.filter((a) => a.id !== id) })),
 
   clearAttachments: () => set({ pending: [] }),
+
+  appendSystemCard: (card) =>
+    set((s) => ({ messages: [...s.messages, card] })),
 
   clear: () => {
     assembler.reset();

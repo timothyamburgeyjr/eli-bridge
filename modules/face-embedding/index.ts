@@ -3,7 +3,7 @@ import { NativeModule, requireNativeModule } from "expo-modules-core";
 export interface FaceDetection {
   /** Bounding box in original image pixel coordinates */
   bbox: { x: number; y: number; width: number; height: number };
-  /** 128-dim face embedding (Pass A: stub hash; Pass B: MobileFaceNet) */
+  /** 128-dim face embedding from MobileFaceNet TFLite, L2-normalized */
   embedding: number[];
   /** ML Kit's detection confidence for this face (0–1) */
   detectionConfidence: number;
