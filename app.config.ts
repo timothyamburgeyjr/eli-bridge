@@ -6,7 +6,11 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     ...config,
     name: "Eli Bridge",
     slug: "eli-bridge",
-    version: "0.1.0",
+    // User-facing version string. Bump this manually when cutting a new
+    // release (0.1.0-alpha.2, 0.1.0-alpha.3, etc.). The Android versionCode
+    // is managed automatically by EAS because eas.json sets
+    // `cli.appVersionSource = "remote"` — EAS increments it on every build.
+    version: "0.1.0-alpha.1",
     orientation: "portrait",
     scheme: "elibridge",
     userInterfaceStyle: "dark",
