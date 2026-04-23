@@ -28,7 +28,13 @@ export default ({ config }: ConfigContext): ExpoConfig =>
     experiments: {
       typedRoutes: true,
     },
+    extra: {
+      eas: {
+        projectId: "dd4e5e3d-753a-482d-bf5a-d8ed9b83f217",
+      },
+    },
     // Env vars are consumed via process.env.EXPO_PUBLIC_* in services/env.ts,
     // which Metro's babel transform inlines at bundle time. We do not rely on
-    // `extra` for API keys because it's unreliable in dev builds with new-arch.
+    // `extra` for API keys because it's unreliable in dev builds with new-arch
+    // — but the EAS projectId IS read from here.
   } as ExpoConfig);
