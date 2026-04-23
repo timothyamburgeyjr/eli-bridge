@@ -15,6 +15,12 @@ import {
   newAttachmentId,
   AttachmentKind,
 } from "@/session/pendingAttachments";
+import { identifySpeaker } from "@/people/voiceId";
+import { identifyFaces, FaceMatch } from "@/people/faceId";
+import { usePeople, Person } from "@/people/PeopleStore";
+import { getPersonContext, resetPersonContextCache } from "@/people/personContext";
+import { resolveOrCreateProfilePath } from "@/people/profileLinker";
+import type { SpeakerLabel, FaceLabel } from "@/types";
 
 export type SendStatus = "idle" | "assembling" | "sending" | "error";
 export type SceneStatus = "idle" | "analyzing" | "error";
@@ -43,6 +49,18 @@ interface ChatState {
 
   sendMessage: (dialog: string) => Promise<void>;
   captureScene: (photoPaths: string[], note?: string) => Promise<void>;
+
+  /**
+   * Commit an UnknownPersonCard's embedding to a named Person. Handles
+   * cross-modal linking — if the name matches an existing Person card, the
+   * embedding gets attached to that same card (so a voice-only Hank gains
+   * a face embedding when Tim names an unknown face "Hank"). If the name
+   * is new, creates a fresh Person record.
+   */
+  enrollFromCard: (
+    cardMessageId: string,
+    name: string
+  ) => { person: { id: string; name: string }; linkedToExisting: boolean } | null;
 
   clear: () => void;
   loadDemo: (messages: ChatItem[]) => void;
@@ -125,6 +143,7 @@ export const useChat = create<ChatState>((set, get) => ({
 
   clear: () => {
     assembler.reset();
+    resetPersonContextCache();
     set({
       messages: [],
       status: "idle",
@@ -189,10 +208,122 @@ export const useChat = create<ChatState>((set, get) => ({
         attachments.filter((a) => a.kind === "audio").map(toInlineBlob)
       );
 
+      // ── Step 1b: On-device voice + face identification
+      const audioAttachments = attachments.filter((a) => a.kind === "audio");
+      const imageAttachments = attachments.filter((a) => a.kind === "image");
+
+      // Tim (the user / "self") is never labeled as a "speaker nearby" or
+      // pushed through the Obsidian-context lookup — his audio already
+      // becomes the message's dialog via Gemini transcription, and Gemini's
+      // system prompt is already written about him. Adding a "Tim said X"
+      // label + third-person profile summary is redundant and noisy.
+      const isSelf = (p: Person) => p.id === "tim" || p.relationship === "self";
+
+      const speakerLabels: SpeakerLabel[] = [];
+      const matchedPeople = new Map<string, Person>(); // id → person, deduped
+      const unknownVoiceAttachments: { att: StagedAttachment; embedding: number[] }[] = [];
+      for (const att of audioAttachments) {
+        try {
+          const res = await identifySpeaker(att.localPath);
+          if (res.person && !isSelf(res.person)) {
+            matchedPeople.set(res.person.id, res.person);
+            speakerLabels.push({
+              speaker: res.person.name,
+              quote: "(spoken audio)",
+              confidence: res.confidence,
+              notes: res.person.notes, // replaced below with Obsidian context if available
+            });
+          } else if (!res.person) {
+            speakerLabels.push({
+              speaker: "Unknown",
+              quote: "(unrecognized voice)",
+              confidence: res.confidence,
+            });
+            unknownVoiceAttachments.push({
+              att,
+              embedding: Array.from(res.embedding),
+            });
+          }
+          // matched-as-Tim → silently consumed, no label, no card
+        } catch (err) {
+          console.warn("[voiceId] identifySpeaker failed:", err);
+        }
+      }
+
+      const faceLabels: FaceLabel[] = [];
+      const unknownFaceDetections: { att: StagedAttachment; match: FaceMatch }[] = [];
+      for (const att of imageAttachments) {
+        try {
+          const matches = await identifyFaces(att.localPath);
+          for (const m of matches) {
+            if (m.person) {
+              // Keep Tim in faceLabels (physical presence in a photo is
+              // genuinely informative — selfies, group shots). But exclude
+              // him from matchedPeople so no Obsidian self-context is pulled.
+              faceLabels.push({
+                person: m.person.name,
+                confidence: m.confidence,
+                notes: m.person.notes, // replaced below with Obsidian context if available
+              });
+              if (!isSelf(m.person)) matchedPeople.set(m.person.id, m.person);
+            } else {
+              faceLabels.push({ person: "Unknown", confidence: m.confidence });
+              unknownFaceDetections.push({ att, match: m });
+            }
+          }
+        } catch (err) {
+          console.warn("[faceId] identifyFaces failed:", err);
+        }
+      }
+
+      // ── Step 1c: Pull Obsidian-backed context for each identified person.
+      // Session-cached + Flash-condensed to the 2-3 most relevant facts for
+      // right now. Runs in parallel; falls back to person.notes on any failure.
+      const personContextById = new Map<string, string>();
+      if (matchedPeople.size > 0) {
+        const entries = Array.from(matchedPeople.values());
+        const results = await Promise.all(
+          entries.map(async (p) => {
+            const ctx = await getPersonContext(p, sensors);
+            return [p.id, ctx] as const;
+          })
+        );
+        for (const [id, ctx] of results) {
+          if (ctx) personContextById.set(id, ctx);
+        }
+      }
+      for (const label of speakerLabels) {
+        const matched = Array.from(matchedPeople.values()).find(
+          (p) => p.name === label.speaker
+        );
+        if (matched) {
+          const ctx = personContextById.get(matched.id);
+          if (ctx) label.notes = ctx;
+          else if (!label.notes) label.notes = matched.relationship;
+        }
+      }
+      for (const label of faceLabels) {
+        const matched = Array.from(matchedPeople.values()).find(
+          (p) => p.name === label.person
+        );
+        if (matched) {
+          const ctx = personContextById.get(matched.id);
+          if (ctx) label.notes = ctx;
+          else if (!label.notes) label.notes = matched.relationship;
+        }
+      }
+
+      // Inject labels into the sensor snapshot so Gemini can use them
+      const sensorsWithLabels = {
+        ...sensors,
+        ...(speakerLabels.length > 0 ? { speakerLabels } : {}),
+        ...(faceLabels.length > 0 ? { faceLabels } : {}),
+      };
+
       const sceneMemo = state.pendingSceneMemo ?? undefined;
 
       const assembled = await assembler.assemble({
-        sensors,
+        sensors: sensorsWithLabels,
         timDialog: text,
         images,
         audios,
@@ -222,8 +353,37 @@ export const useChat = create<ChatState>((set, get) => ({
         attachments: pendingTim.attachments,
       };
 
+      // Build UnknownPersonCard messages for any unrecognized voices/faces.
+      // Each card carries the embedding so enrollFromCard() can commit it
+      // without re-running the native inference.
+      const unknownCards: ChatItem[] = [];
+      for (const { att, embedding } of unknownVoiceAttachments) {
+        unknownCards.push({
+          id: `unk-voice-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          from: "unknownperson",
+          time: timeString(),
+          variant: "voice",
+          quote: "(unrecognized voice in the recording)",
+          audioPath: att.localPath,
+          embedding,
+        });
+      }
+      for (const { att, match } of unknownFaceDetections) {
+        unknownCards.push({
+          id: `unk-face-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          from: "unknownperson",
+          time: timeString(),
+          variant: "face",
+          faceNote: "Unrecognized face in your photo",
+          confidence: match.confidence.toFixed(2),
+          imagePath: att.localPath,
+          bbox: match.bbox,
+          embedding: Array.from(match.embedding),
+        });
+      }
+
       set({
-        messages: [...get().messages.slice(0, -1), finalizedTim],
+        messages: [...get().messages.slice(0, -1), finalizedTim, ...unknownCards],
         status: "sending",
         lastEmoteChars: ambient.length,
         lastFilteredContext: contextPreview(assembled.filteredSensors),
@@ -272,6 +432,65 @@ export const useChat = create<ChatState>((set, get) => ({
         errorMessage: msg,
       });
     }
+  },
+
+  enrollFromCard: (cardMessageId, name) => {
+    const state = get();
+    const card = state.messages.find((m) => m.id === cardMessageId);
+    if (!card || card.from !== "unknownperson") return null;
+    const embedding = card.embedding as number[] | undefined;
+    if (!embedding) return null;
+    const isVoice = card.variant !== "face";
+
+    const peopleStore = usePeople.getState();
+    const trimmed = name.trim();
+    const existing = peopleStore.findByName(trimmed);
+    let linked = false;
+
+    let resultId: string;
+    let resultName: string;
+
+    if (existing) {
+      // Cross-modal link — attach new modality to existing Person card
+      peopleStore.updatePerson(existing.id, {
+        ...(isVoice
+          ? { voiceEmbedding: embedding, pendingVoiceSamples: [] }
+          : { faceEmbedding: embedding }),
+      });
+      linked = true;
+      resultId = existing.id;
+      resultName = existing.name;
+    } else {
+      const created = peopleStore.addPerson({
+        name: trimmed,
+        voiceEmbedding: isVoice ? embedding : null,
+        faceEmbedding: isVoice ? null : embedding,
+      });
+      resultId = created.id;
+      resultName = created.name;
+    }
+
+    // Fire-and-forget: resolve or create the Obsidian profile page and attach
+    // its path to the Person. Runs async so the enrollment UI doesn't wait
+    // on the vault round-trip; updates the store when it resolves.
+    const currentPerson = peopleStore.byId[resultId];
+    if (currentPerson && !currentPerson.obsidianPath) {
+      resolveOrCreateProfilePath(resultName)
+        .then((resolved) => {
+          if (!resolved) return;
+          usePeople.getState().updatePerson(resultId, {
+            obsidianPath: resolved.path,
+          });
+        })
+        .catch((err) => {
+          console.warn("[profileLinker] async resolve failed:", err);
+        });
+    }
+
+    return {
+      person: { id: resultId, name: resultName },
+      linkedToExisting: linked,
+    };
   },
 
   captureScene: async (photoPaths, note) => {

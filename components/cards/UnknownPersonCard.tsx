@@ -1,11 +1,13 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, TextInput, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
+import { useChat } from "@/stores/chatStore";
 
 type State = "prompt" | "naming" | "enrolled" | "dismissed";
 
 interface Props {
   msg: {
+    id: string;
     variant?: "voice" | "face";
     quote?: string;
     faceNote?: string;
@@ -16,10 +18,23 @@ interface Props {
 
 export function UnknownPersonCard({ msg }: Props) {
   const [state, setState] = useState<State>("prompt");
-  const [name, setName] = useState("");
+  const [name, setName] = useState(msg.suggestion ?? "");
+  const [enrolledName, setEnrolledName] = useState("");
+  const [linkedToExisting, setLinkedToExisting] = useState(false);
+  const enrollFromCard = useChat((s) => s.enrollFromCard);
   const isVoice = msg.variant !== "face";
 
   if (state === "dismissed") return null;
+
+  const handleConfirm = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    const result = enrollFromCard(msg.id, trimmed);
+    if (!result) return;
+    setEnrolledName(result.person.name);
+    setLinkedToExisting(result.linkedToExisting);
+    setState("enrolled");
+  };
 
   return (
     <View style={{ marginBottom: 14 }}>
@@ -36,7 +51,6 @@ export function UnknownPersonCard({ msg }: Props) {
             <Text style={styles.quote}>
               {msg.quote ?? "Someone nearby said something — I couldn't make it out clearly."}
             </Text>
-            <Text style={styles.meta}>Sample 1 of 3 — needs more encounters to enroll</Text>
           </View>
         ) : (
           <View style={styles.faceRow}>
@@ -77,11 +91,13 @@ export function UnknownPersonCard({ msg }: Props) {
               placeholder="Who is this?"
               placeholderTextColor={C.muted}
               style={styles.nameInput}
+              autoCapitalize="words"
+              autoCorrect={false}
+              returnKeyType="done"
+              onSubmitEditing={handleConfirm}
             />
             <Pressable
-              onPress={() => {
-                if (name.trim()) setState("enrolled");
-              }}
+              onPress={handleConfirm}
               style={[styles.confirmBtn, { opacity: name.trim() ? 1 : 0.4 }]}
             >
               <Text style={{ color: "#fff", fontSize: 12, fontWeight: "600" }}>Add</Text>
@@ -90,9 +106,17 @@ export function UnknownPersonCard({ msg }: Props) {
         ) : null}
 
         {state === "enrolled" ? (
-          <Text style={styles.enrolledText}>
-            ✓ {name} added to People {isVoice ? "🎙️" : "📷"}
-          </Text>
+          <View>
+            <Text style={styles.enrolledText}>
+              ✓ {enrolledName} {linkedToExisting ? "linked" : "added"} to People
+              {isVoice ? " 🎙️" : " 📷"}
+            </Text>
+            {linkedToExisting ? (
+              <Text style={styles.linkNote}>
+                Attached {isVoice ? "voice" : "face"} to the existing {enrolledName} card.
+              </Text>
+            ) : null}
+          </View>
         ) : null}
       </View>
     </View>
@@ -110,7 +134,7 @@ const styles = StyleSheet.create({
   },
   headRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
   headTitle: { fontSize: 12, fontWeight: "700", color: C.text },
-  quote: { fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 4 },
+  quote: { fontSize: 12, color: C.textDim, fontStyle: "italic", marginBottom: 10 },
   meta: { fontSize: 10, color: C.muted, marginBottom: 10 },
   faceRow: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   faceThumb: {
@@ -162,5 +186,6 @@ const styles = StyleSheet.create({
     backgroundColor: C.accent,
     alignItems: "center",
   },
-  enrolledText: { fontSize: 12, color: C.green },
+  enrolledText: { fontSize: 12, color: C.green, fontWeight: "600" },
+  linkNote: { fontSize: 10, color: C.muted, marginTop: 4, fontStyle: "italic" },
 });

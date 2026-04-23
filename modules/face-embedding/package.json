@@ -1,0 +1,9 @@
+{
+  "name": "face-embedding",
+  "version": "0.1.0",
+  "description": "On-device face detection (ML Kit) + MobileFaceNet embedding (Pass A: stub; Pass B: real TFLite)",
+  "main": "index.ts",
+  "keywords": ["react-native", "expo"],
+  "license": "UNLICENSED",
+  "private": true
+}

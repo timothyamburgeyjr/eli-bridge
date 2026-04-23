@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { C } from "@/constants/theme";
 import { useChat } from "@/stores/chatStore";
+import { useSession } from "@/session/SessionStore";
 import { SessionHeader } from "@/components/session/SessionHeader";
 import { SessionTimeline } from "@/components/session/SessionTimeline";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
@@ -21,6 +22,7 @@ import { StagingTray } from "@/components/chat/StagingTray";
 import { MediaPicker } from "@/components/capture/MediaPicker";
 import { CaptureModal, CaptureMode } from "@/components/capture/CaptureModal";
 import { DiagnosticsPanel } from "@/components/diagnostics/DiagnosticsPanel";
+import { PeopleRoster } from "@/components/people/PeopleRoster";
 import { EliAvatar } from "@/components/common/EliAvatar";
 import { SCENARIOS, getScenario, ScenarioId } from "@/data/scenarios";
 
@@ -29,16 +31,17 @@ type ChatSource = "live" | ScenarioId;
 
 export default function Main() {
   const [mode, setMode] = useState<Mode>("session");
-  const [connected, setConnected] = useState(true);
   const [showChat, setShowChat] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [captureMode, setCaptureMode] = useState<CaptureMode | null>(null);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
+  const [peopleOpen, setPeopleOpen] = useState(false);
   const [source, setSource] = useState<ChatSource>("live");
 
   const liveMessages = useChat((s) => s.messages);
+  const clearChat = useChat((s) => s.clear);
   const status = useChat((s) => s.status);
   const errorMessage = useChat((s) => s.errorMessage);
   const lastEmoteChars = useChat((s) => s.lastEmoteChars);
@@ -47,11 +50,63 @@ export default function Main() {
   const sceneError = useChat((s) => s.sceneError);
   const pendingSceneMemo = useChat((s) => s.pendingSceneMemo);
 
+  const sessionStatus = useSession((s) => s.status);
+  const sessionStartedAt = useSession((s) => s.startedAt);
+  const sessionJournal = useSession((s) => s.journal);
+  const startSession = useSession((s) => s.start);
+  const endSession = useSession((s) => s.end);
+  const connected = sessionStatus === "active";
+
+  const handleConnectToggle = async () => {
+    if (sessionStatus === "idle" || sessionStatus === "saved") {
+      clearChat();
+      await startSession();
+      setShowChat(false);
+    } else if (sessionStatus === "active") {
+      await endSession(liveMessages);
+      setShowChat(true); // force chat view so the SessionJournalCard is visible
+    }
+    // Ignored during transient states (starting / ending / journal-ready /
+    // saving / error) — user must resolve the journal card before reconnecting.
+  };
+
   const activeScenario = useMemo(
     () => (source === "live" ? null : getScenario(source as ScenarioId)),
     [source]
   );
-  const displayMessages = source === "live" ? liveMessages : activeScenario!.messages;
+  const displayMessages = useMemo(() => {
+    if (source !== "live") return activeScenario!.messages;
+
+    // When the session ends, inject a SessionJournalCard so the user can
+    // review/edit the draft and decide Save/Discard. The card component reads
+    // live state from useSession, so it updates through the save/saved/error
+    // statuses without needing us to rebuild this list.
+    const showJournal =
+      sessionJournal &&
+      (sessionStatus === "journal-ready" ||
+        sessionStatus === "saving" ||
+        sessionStatus === "saved" ||
+        sessionStatus === "error");
+
+    if (!showJournal) return liveMessages;
+
+    const journalTime = new Date().toLocaleTimeString([], {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+    const journalItem = {
+      id: `sessionjournal-${sessionStartedAt ?? Date.now()}`,
+      from: "sessionjournal" as const,
+      time: journalTime,
+      title: sessionJournal!.title,
+      date: sessionJournal!.dateYmd,
+      duration: `${sessionJournal!.summary.durationMinutes} min`,
+      locations: sessionJournal!.summary.placesVisited,
+      preview: sessionJournal!.narrative.slice(0, 160).replace(/\n+/g, " "),
+      fullText: sessionJournal!.markdown,
+    };
+    return [...liveMessages, journalItem as unknown as (typeof liveMessages)[number]];
+  }, [source, liveMessages, activeScenario, sessionJournal, sessionStatus, sessionStartedAt]);
 
   // Auto-show chat when a message arrives in live mode
   useEffect(() => {
@@ -75,7 +130,7 @@ export default function Main() {
       <SessionHeader
         connected={connected}
         mode={mode}
-        onTogglePress={() => setConnected((c) => !c)}
+        onTogglePress={handleConnectToggle}
         onTimelinePress={() => setTimelineOpen(true)}
         onSettingsPress={() => setSettingsOpen(true)}
         onModeChange={(m) => {
@@ -172,6 +227,20 @@ export default function Main() {
         <ChatStream messages={displayMessages} />
       )}
 
+      {sessionStatus === "starting" && (
+        <View style={styles.assembleBanner}>
+          <ActivityIndicator size="small" color={C.accent} />
+          <Text style={{ color: C.accent, fontSize: 11 }}>Connecting — loading biography + scene…</Text>
+        </View>
+      )}
+
+      {sessionStatus === "ending" && (
+        <View style={styles.assembleBanner}>
+          <ActivityIndicator size="small" color={C.accent} />
+          <Text style={{ color: C.accent, fontSize: 11 }}>Drafting session journal…</Text>
+        </View>
+      )}
+
       {status === "assembling" && (
         <View style={styles.assembleBanner}>
           <ActivityIndicator size="small" color={C.accent} />
@@ -220,12 +289,17 @@ export default function Main() {
       <SettingsPanel
         visible={settingsOpen}
         onClose={() => setSettingsOpen(false)}
+        onPeoplePress={() => {
+          setSettingsOpen(false);
+          setPeopleOpen(true);
+        }}
         onDiagnosticsPress={() => {
           setSettingsOpen(false);
           setDiagnosticsOpen(true);
         }}
       />
       <DiagnosticsPanel visible={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
+      <PeopleRoster visible={peopleOpen} onClose={() => setPeopleOpen(false)} />
 
       <MediaPicker
         visible={pickerOpen}

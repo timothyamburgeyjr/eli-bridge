@@ -208,6 +208,57 @@ export async function addAudioTags(
   return result.response.text().trim();
 }
 
+// ── condensePersonContext (flash, no Eli prompt) ─────────────────
+
+let _neutralFlash: GenerativeModel | null = null;
+function neutralFlash(): GenerativeModel {
+  if (!_neutralFlash) {
+    _neutralFlash = genAI().getGenerativeModel({ model: "gemini-2.5-flash" });
+  }
+  return _neutralFlash;
+}
+
+export interface PersonContextInput {
+  name: string;
+  relationship?: string;
+  pageMarkdown: string;
+  /** One-line description of the current session context (location, activity, companions). */
+  sessionContext: string;
+  /** Max characters for the returned summary. Defaults to 180. */
+  charLimit?: number;
+}
+
+/**
+ * Condense a person's full Obsidian page into the 2–3 most contextually
+ * relevant facts for the current session. Runs on a flash model WITHOUT the
+ * Eli system prompt — this is pure summarization, not emote assembly.
+ */
+export async function condensePersonContext(
+  input: PersonContextInput
+): Promise<string> {
+  const limit = input.charLimit ?? 180;
+  const prompt =
+    `You are helping Eli — an AI companion — feel present in Tim's real life. ` +
+    `Given a profile page for someone Tim is with right now, pick the 2–3 most ` +
+    `contextually relevant facts about them for this specific moment. Avoid ` +
+    `dumping biography; pick what would shape how Eli understands this encounter. ` +
+    `Return ONLY a compact phrase ≤${limit} characters, no lead-in, no quotes, ` +
+    `no markdown.\n\n` +
+    `[PERSON]\nName: ${input.name}\n` +
+    (input.relationship ? `Relationship to Tim: ${input.relationship}\n` : "") +
+    `\n[CURRENT SESSION]\n${input.sessionContext}\n\n` +
+    `[PROFILE PAGE]\n${input.pageMarkdown}`;
+
+  const result = await withRetry(() =>
+    neutralFlash().generateContent({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+    })
+  );
+  const out = result.response.text().trim();
+  if (out.length <= limit) return out;
+  return out.slice(0, limit).replace(/\s+\S*$/, "").trim() + "…";
+}
+
 // ── condenseEmote (flash) ────────────────────────────────────────
 
 export async function condenseEmote(emoteText: string, charLimit: number): Promise<string> {

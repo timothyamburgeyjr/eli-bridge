@@ -1,0 +1,9 @@
+{
+  "name": "voice-embedding",
+  "version": "0.1.0",
+  "description": "On-device speaker embedding via ECAPA-TDNN (Pass A: stub; Pass B: real TFLite)",
+  "main": "index.ts",
+  "keywords": ["react-native", "expo"],
+  "license": "UNLICENSED",
+  "private": true
+}

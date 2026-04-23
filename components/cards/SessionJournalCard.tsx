@@ -1,6 +1,14 @@
-import React, { useState } from "react";
-import { View, Text, Pressable, StyleSheet } from "react-native";
+import React, { useState, useEffect } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  ActivityIndicator,
+} from "react-native";
 import { C } from "@/constants/theme";
+import { useSession } from "@/session/SessionStore";
 
 interface Props {
   msg: {
@@ -12,51 +20,130 @@ interface Props {
     soundtrack?: string[];
     preview?: string;
     previewQuote?: string;
+    /** Full drafted markdown — editable by Tim before save. */
+    fullText?: string;
   };
 }
 
 export function SessionJournalCard({ msg }: Props) {
-  const [saved, setSaved] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
-  if (dismissed) return null;
-  const preview = msg.preview ?? msg.previewQuote ?? "";
+  const [editableTitle, setEditableTitle] = useState(msg.title);
+  const [editableBody, setEditableBody] = useState(msg.fullText ?? "");
+  const [expanded, setExpanded] = useState(false);
+  const status = useSession((s) => s.status);
+  const errorMessage = useSession((s) => s.errorMessage);
+  const saveJournal = useSession((s) => s.saveJournal);
+  const discardJournal = useSession((s) => s.discardJournal);
+
+  useEffect(() => {
+    setEditableTitle(msg.title);
+    setEditableBody(msg.fullText ?? "");
+  }, [msg.title, msg.fullText]);
+
+  const previewText = msg.preview ?? msg.previewQuote ?? "";
+  const saving = status === "saving";
+  const saved = status === "saved";
+  const showActions = status === "journal-ready" || status === "error" || status === "saving";
+
+  if (status === "idle" && !saved) return null;
+
   return (
     <View style={{ marginBottom: 20 }}>
       <View style={styles.card}>
         <Text style={styles.header}>📓 Session Journal · {msg.time}</Text>
-        <Text style={styles.title}>{msg.title}</Text>
+
+        {showActions ? (
+          <TextInput
+            value={editableTitle}
+            onChangeText={setEditableTitle}
+            placeholder="Title"
+            placeholderTextColor={C.muted}
+            style={styles.titleInput}
+          />
+        ) : (
+          <Text style={styles.title}>{editableTitle}</Text>
+        )}
+
         <Text style={styles.meta}>
           {msg.date} · {msg.duration}
-          {msg.locations ? ` · ${msg.locations.length} locations` : ""}
+          {msg.locations && msg.locations.length > 0 ? ` · ${msg.locations.length} locations` : ""}
         </Text>
+
         {msg.soundtrack && msg.soundtrack.length > 0 ? (
           <View style={styles.innerBox}>
-            <Text style={styles.innerLabel}>🎵 Trip soundtrack</Text>
+            <Text style={styles.innerLabel}>🎵 Soundtrack</Text>
             {msg.soundtrack.map((track, i) => (
               <Text key={i} style={styles.innerItem}>· {track}</Text>
             ))}
           </View>
         ) : null}
-        {preview ? (
-          <Text style={styles.preview}>"{preview}..."</Text>
+
+        {previewText ? <Text style={styles.preview}>"{previewText}..."</Text> : null}
+
+        {showActions ? (
+          <Pressable
+            onPress={() => setExpanded((e) => !e)}
+            style={styles.expandBtn}
+          >
+            <Text style={{ color: C.muted, fontSize: 11 }}>
+              {expanded ? "▼ Hide full draft" : "▶ Show + edit full draft"}
+            </Text>
+          </Pressable>
         ) : null}
+
+        {expanded && showActions ? (
+          <TextInput
+            value={editableBody}
+            onChangeText={setEditableBody}
+            multiline
+            style={styles.bodyInput}
+            placeholder="Journal body (markdown)"
+            placeholderTextColor={C.muted}
+          />
+        ) : null}
+
         <Text style={styles.footerNote}>
-          💡 Gemini drafted this from your session · GPS track · messages · Now Playing log
+          💡 Gemini drafted this from session data. Save writes to your vault root.
         </Text>
-        {!saved ? (
+
+        {errorMessage ? (
+          <View style={styles.errorBanner}>
+            <Text style={{ color: C.red, fontSize: 11 }}>⚠ {errorMessage}</Text>
+          </View>
+        ) : null}
+
+        {saved ? (
+          <View style={styles.savedBanner}>
+            <Text style={{ color: C.green, fontSize: 12, fontWeight: "600" }}>
+              ✓ Saved to vault
+            </Text>
+          </View>
+        ) : showActions ? (
           <View style={{ flexDirection: "row", gap: 8 }}>
-            <Pressable onPress={() => setSaved(true)} style={styles.saveBtn}>
-              <Text style={{ color: C.accent, fontSize: 12, fontWeight: "700" }}>Save to Vault →</Text>
+            <Pressable
+              onPress={() => saveJournal(editableTitle, editableBody)}
+              disabled={saving || !editableTitle.trim()}
+              style={[
+                styles.saveBtn,
+                (saving || !editableTitle.trim()) && { opacity: 0.5 },
+              ]}
+            >
+              {saving ? (
+                <ActivityIndicator size="small" color={C.accent} />
+              ) : (
+                <Text style={{ color: C.accent, fontSize: 12, fontWeight: "700" }}>
+                  Save to Vault →
+                </Text>
+              )}
             </Pressable>
-            <Pressable onPress={() => setDismissed(true)} style={styles.discardBtn}>
+            <Pressable
+              onPress={discardJournal}
+              disabled={saving}
+              style={[styles.discardBtn, saving && { opacity: 0.5 }]}
+            >
               <Text style={{ color: C.muted, fontSize: 12 }}>Discard</Text>
             </Pressable>
           </View>
-        ) : (
-          <View style={styles.savedBanner}>
-            <Text style={{ color: C.green, fontSize: 12 }}>✓ Saved to Obsidian vault</Text>
-          </View>
-        )}
+        ) : null}
       </View>
     </View>
   );
@@ -81,6 +168,15 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   title: { color: C.text, fontWeight: "700", fontSize: 14, marginBottom: 2 },
+  titleInput: {
+    color: C.text,
+    fontWeight: "700",
+    fontSize: 14,
+    marginBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+    paddingVertical: 4,
+  },
   meta: { color: C.muted, fontSize: 11, marginBottom: 10 },
   innerBox: {
     backgroundColor: C.surface,
@@ -107,7 +203,34 @@ const styles = StyleSheet.create({
     borderLeftColor: "rgba(124,92,255,0.2)",
     paddingLeft: 10,
   },
+  expandBtn: {
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  bodyInput: {
+    color: C.text,
+    fontSize: 12,
+    lineHeight: 18,
+    backgroundColor: C.surface,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.border,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 10,
+    minHeight: 180,
+    maxHeight: 320,
+    textAlignVertical: "top",
+  },
   footerNote: { fontSize: 10, color: C.muted, marginBottom: 8 },
+  errorBanner: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: C.red + "14",
+    borderWidth: 1,
+    borderColor: C.red + "44",
+    marginBottom: 8,
+  },
   saveBtn: {
     flex: 1,
     paddingVertical: 8,
@@ -116,6 +239,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.accent + "44",
     alignItems: "center",
+    justifyContent: "center",
   },
   discardBtn: {
     paddingVertical: 8,

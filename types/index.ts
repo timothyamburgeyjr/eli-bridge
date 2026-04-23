@@ -13,7 +13,7 @@ export interface PersonCard {
   id: string;
   name: string;
   relationship?: string; // "Dad", "Best friend", "Coworker", etc.
-  voiceEmbedding?: Float32Array; // 256-dim ECAPA-TDNN vector (~1KB)
+  voiceEmbedding?: Float32Array; // 192-dim ECAPA-TDNN vector (~768 bytes)
   faceEmbedding?: Float32Array; // 128-dim MobileFaceNet vector (~512 bytes)
   voiceSamples: number; // 0-3; embedding committed at 3
   pendingVoiceSamples?: Float32Array[]; // queued before commitment
@@ -394,11 +394,15 @@ export interface SpeakerLabel {
   speaker: string; // "Hank" or "Unknown #1"
   quote: string;
   confidence: number;
+  /** Rich context for the speaker from PeopleStore.notes. Absent when unknown. */
+  notes?: string;
 }
 
 export interface FaceLabel {
   person: string; // "Hank" or "Unknown #1"
   confidence: number;
+  /** Rich context for the person from PeopleStore.notes. Absent when unknown. */
+  notes?: string;
 }
 
 export interface GeminiHistoryEntry {

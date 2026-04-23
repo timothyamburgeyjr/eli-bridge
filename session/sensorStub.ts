@@ -66,6 +66,49 @@ function describeWeatherMood(
   return "";
 }
 
+function describeTempFeel(tempF: number): string {
+  if (tempF < 20) return "bitter cold";
+  if (tempF < 35) return "cold, stiff air";
+  if (tempF < 50) return "chilly";
+  if (tempF < 62) return "cool";
+  if (tempF < 72) return "mild, comfortable";
+  if (tempF < 80) return "warm";
+  if (tempF < 88) return "hot";
+  return "blistering heat";
+}
+
+function describeWind(windMph: number): string {
+  if (windMph < 3) return "air still";
+  if (windMph < 10) return "light breeze";
+  if (windMph < 20) return "steady wind";
+  if (windMph < 30) return "strong wind";
+  return "gale-force wind";
+}
+
+function describeHumidity(humidity: number, tempF: number): string {
+  if (humidity > 80 && tempF > 72) return "heavy, sticky air";
+  if (humidity > 70) return "muggy";
+  if (humidity < 25) return "dry air";
+  return "";
+}
+
+function isIndoorPlaceType(placeType?: string): boolean {
+  if (!placeType) return false;
+  return [
+    "residential",
+    "restaurant",
+    "cafe",
+    "bar",
+    "store",
+    "shop",
+    "museum",
+    "mall",
+    "airport",
+    "hospital",
+    "office",
+  ].includes(placeType);
+}
+
 function describeActivity(activity: string | undefined): string {
   if (!activity) return "";
   if (activity === "still") return "not moving — likely at his desk, on the couch, or settled somewhere";
@@ -103,11 +146,28 @@ export function snapshotToText(s: SensorSnapshot): string {
   if (s.weather) {
     const w = s.weather;
     const mood = describeWeatherMood(w.conditions, isDaytime);
+    const isIndoors = isIndoorPlaceType(s.location?.placeType);
+    const tempFeel = describeTempFeel(w.temp);
+
     const extras: string[] = [];
-    if (w.humidity !== undefined) extras.push(`${w.humidity}% humidity`);
-    if (w.windSpeed !== undefined && w.windSpeed > 0) extras.push(`wind ${w.windSpeed} mph`);
-    if (w.uvIndex !== undefined && w.uvIndex > 7) extras.push(`UV ${w.uvIndex} (strong)`);
-    const line = `Weather: ${Math.round(w.temp)}°F, ${w.conditions}${mood ? ` — ${mood}` : ""}${extras.length ? `; ${extras.join(", ")}` : ""}`;
+    if (w.humidity !== undefined) {
+      const h = describeHumidity(w.humidity, w.temp);
+      if (h) extras.push(h);
+    }
+    if (w.windSpeed !== undefined && w.windSpeed >= 10 && !isIndoors) {
+      extras.push(describeWind(w.windSpeed));
+    }
+    // UV only matters when Tim is outdoors AND it's high. Indoors, UV is noise —
+    // Eli doesn't need to know "the UV index is 7" when Tim is on the couch.
+    if (w.uvIndex !== undefined && w.uvIndex > 7 && !isIndoors) {
+      extras.push("sun feels harsh, bright enough to squint");
+    }
+
+    // Sensory line, no raw numbers. Gemini will weave felt texture; the Tier 1
+    // prompt Bad example explicitly forbids "72°F and sunny" style data dumps.
+    const line =
+      `Weather: ${tempFeel}, ${w.conditions}${mood ? ` — ${mood}` : ""}` +
+      `${extras.length ? `; ${extras.join(", ")}` : ""}`;
     parts.push(line);
     if (w.alerts?.length) parts.push(`Weather alerts: ${w.alerts.join("; ")}`);
   }
@@ -120,10 +180,31 @@ export function snapshotToText(s: SensorSnapshot): string {
   }
 
   if (s.health?.heartRate !== undefined) {
-    parts.push(`Heart rate: ${s.health.heartRate} bpm`);
+    // Ledger already filters HR to anomalous-only. Translate to felt state.
+    const hr = s.health.heartRate;
+    const felt =
+      hr >= 150
+        ? "heart pounding hard"
+        : hr >= 120
+        ? "heart racing"
+        : hr >= 100
+        ? "heart elevated"
+        : hr < 50
+        ? "heart unusually slow"
+        : "heart rate off-baseline";
+    parts.push(`Physical: ${felt}`);
   }
   if (s.barometer?.delta30min !== undefined) {
-    parts.push(`Barometer: ${s.barometer.pressure} hPa (Δ30min ${s.barometer.delta30min})`);
+    const d = s.barometer.delta30min;
+    const felt =
+      d <= -4
+        ? "air pressure dropping fast — storm likely building"
+        : d <= -2
+        ? "pressure falling, weather shifting"
+        : d >= 4
+        ? "pressure rising sharply, air clearing"
+        : "pressure shifting";
+    parts.push(`Barometer: ${felt}`);
   }
   if (s.nowPlaying) {
     parts.push(`Playing: ${s.nowPlaying.track} — ${s.nowPlaying.artist}`);
@@ -134,13 +215,21 @@ export function snapshotToText(s: SensorSnapshot): string {
   if (s.speakerLabels?.length) {
     parts.push(
       `Speakers nearby: ${s.speakerLabels
-        .map((l) => `${l.speaker} said "${l.quote}" (conf ${l.confidence.toFixed(2)})`)
+        .map((l) => {
+          const who = l.notes ? `${l.speaker} (${l.notes})` : l.speaker;
+          return `${who} said "${l.quote}" (conf ${l.confidence.toFixed(2)})`;
+        })
         .join(" | ")}`
     );
   }
   if (s.faceLabels?.length) {
     parts.push(
-      `Faces identified: ${s.faceLabels.map((f) => `${f.person} (${f.confidence.toFixed(2)})`).join(", ")}`
+      `Faces identified: ${s.faceLabels
+        .map((f) => {
+          const who = f.notes ? `${f.person} (${f.notes})` : f.person;
+          return `${who} — conf ${f.confidence.toFixed(2)}`;
+        })
+        .join(" | ")}`
     );
   }
   if (s.ambientAudio) parts.push(`Ambient sound: ${s.ambientAudio}`);

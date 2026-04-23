@@ -9,6 +9,8 @@ import {
   Image,
   ScrollView,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import {
   CameraView,
@@ -207,8 +209,16 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
   const showCamera = needsCamera && cameraPerm?.granted;
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={onClose}>
-      <View style={styles.root}>
+    <Modal
+      visible={visible}
+      animationType="slide"
+      onRequestClose={onClose}
+      statusBarTranslucent
+    >
+      <KeyboardAvoidingView
+        style={styles.root}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+      >
         {flashing && <View style={styles.flash} />}
 
         {/* Main viewport */}
@@ -346,7 +356,7 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
 
           <View style={styles.smallBtn} />
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
