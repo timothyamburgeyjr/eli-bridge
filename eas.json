@@ -15,6 +15,7 @@
     "preview": {
       "distribution": "internal",
       "channel": "preview",
+      "prebuildCommand": "npx expo prebuild --platform android --clean && node scripts/patch-gradle.mjs",
       "android": {
         "buildType": "apk"
       }
