@@ -30,6 +30,13 @@ export default ({ config }: ConfigContext): ExpoConfig =>
       package: "dev.amburgey.elibridge",
       predictiveBackGestureEnabled: false,
       edgeToEdgeEnabled: true,
+      // JSC instead of Hermes — Hermes compiler on EAS Linux builds keeps
+      // failing at `:app:createBundleReleaseJsAndAssets` with
+      // "A problem occurred starting process '.../hermesc'" even with the
+      // chmod post-install fix. Using JSC skips hermesc entirely. Cost:
+      // slightly slower cold start (~100-200ms) and larger APK (~3MB),
+      // which is fine for an alpha build.
+      jsEngine: "jsc",
     },
     ios: {
       bundleIdentifier: "dev.amburgey.elibridge",
