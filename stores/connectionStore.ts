@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import * as Network from "expo-network";
+import { AppState, AppStateStatus } from "react-native";
 
 export type ReachabilityState = "online" | "offline" | "unknown";
 
@@ -109,6 +110,18 @@ export const useConnection = create<ConnectionState>((set, get) => ({
         }
       });
     }
+
+    // Foreground-return refresh. Android sometimes suspends delivery of
+    // network state events when the app is deep-backgrounded (screen off
+    // for a while). If wifi drops → comes back while backgrounded, the
+    // app resumes with stale "offline" state and no trigger to re-check.
+    // This listener does a definitive getNetworkStateAsync probe every
+    // time the user returns to the foreground.
+    AppState.addEventListener("change", (next: AppStateStatus) => {
+      if (next === "active") {
+        get().refresh();
+      }
+    });
   },
 }));
 

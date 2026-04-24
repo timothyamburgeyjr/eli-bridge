@@ -187,10 +187,45 @@ export async function analyzeScene(opts: {
 
 export async function draftJournal(sessionSummary: string): Promise<string> {
   const prompt = `Draft a session journal entry in Tim's voice based on the following session data. Follow Section 11 of your system instructions — direct, sensory but not flowery, em dashes, Ohio-specific texture, references people by name. One to three paragraphs.\n\n[SESSION DATA]\n${sessionSummary}`;
-  const result = await withRetry(() =>
-    flash().generateContent({ contents: [{ role: "user", parts: [{ text: prompt }] }] })
+  // 15s cap so the End-session flow never hangs indefinitely when Gemini
+  // is slow or the network is flaky. journalBuilder already catches this
+  // error and falls back to a placeholder narrative, so on timeout the
+  // session still ends cleanly and the user sees the journal card with
+  // a "(Gemini narrative unavailable — timeout)" body they can edit.
+  return withDeadline(
+    withRetry(() =>
+      flash().generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      })
+    ).then((r) => r.response.text().trim()),
+    15_000,
+    "draftJournal"
   );
-  return result.response.text().trim();
+}
+
+/**
+ * Race a promise against a timeout. On timeout the race rejects with a
+ * descriptive error, but the underlying promise keeps running (we can't
+ * abort the Gemini SDK's fetch from out here). Used on operations that
+ * block UI transitions where waiting forever is worse than a fallback
+ * message — notably draftJournal on session end.
+ */
+function withDeadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
 }
 
 // ── addAudioTags (flash) ─────────────────────────────────────────
