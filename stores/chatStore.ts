@@ -163,6 +163,24 @@ function contextPreview(filtered: SensorSnapshot): string[] {
 }
 
 /**
+ * Strip any Gemini-hallucinated Eli continuation that got baked into
+ * Tim's transcribed voice message. The structural tell for a turn bleed
+ * is a paragraph break followed by a new `_(*emote*)_` block — that
+ * pattern indicates Flash started generating Eli's response on top of
+ * Tim's transcription. Inline mid-sentence emotes (e.g. the singing
+ * tonal-shift pattern) don't have a preceding blank line so they survive.
+ * Defensive fallback to the prompt-level guardrail in assembleEmote.
+ */
+function stripHallucinatedContinuation(body: string): string {
+  if (!body) return body;
+  const m = body.match(/\n\s*\n\s*_\(\*/);
+  if (m && m.index !== undefined) {
+    return body.slice(0, m.index).trim();
+  }
+  return body;
+}
+
+/**
  * Decide whether a caught send error is transient (worth retrying) or
  * permanent (show the red banner, don't retry). Conservative on purpose:
  * we'd rather retry a permanent failure and eventually give up than drop
@@ -512,12 +530,20 @@ export const useChat = create<ChatState>((set, get) => ({
       // If Tim sent only audio (no typed text), fall back to Gemini's full
       // output so the transcribed dialog survives.
       const ambient = assembled.leadingEmote.trim();
+      // Safety net for the "Eli's response baked into Tim's bubble" bug:
+      // Gemini Flash sometimes pattern-completes into Eli's next turn when
+      // chat history alternates Tim/Eli and the input is audio. If the
+      // body contains a paragraph-break followed by another emote block,
+      // that's a structural tell for "second turn started here" — cut at
+      // that boundary. Inline mid-sentence emotes (e.g. from the singing
+      // example) don't have a preceding blank line, so they survive.
+      const safeBody = stripHallucinatedContinuation(assembled.body);
       let finalRaw: string;
       if (text) {
         const timWithEmotes = convertTimAsterisksToEmotes(text);
         finalRaw = ambient ? `_(*${ambient}*)_ ${timWithEmotes}` : timWithEmotes;
       } else {
-        finalRaw = assembled.raw;
+        finalRaw = ambient ? `_(*${ambient}*)_ ${safeBody}` : safeBody;
       }
 
       const finalizedTim: ChatItem = {
@@ -525,7 +551,7 @@ export const useChat = create<ChatState>((set, get) => ({
         from: "tim",
         time: timeString(),
         emote: ambient,
-        dialog: text ? convertTimAsterisksToEmotes(text) : assembled.body,
+        dialog: text ? convertTimAsterisksToEmotes(text) : safeBody,
         raw: finalRaw,
         attachments: pendingTim.attachments,
       };

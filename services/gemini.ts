@@ -130,10 +130,28 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
       "_(*starts singing softly*)_ Lemon pound cake, it tastes so nice...\n"
     : "";
 
+  // Output-scope guardrail. Without this, Flash will sometimes pattern-
+  // complete into Eli's response — especially when chat history shows
+  // alternating Tim/Eli turns and the input is audio. The symptom: Tim's
+  // bubble on-device contains transcribed speech followed by bonus emotes
+  // addressed TO Tim ("I think so too, Tim. A lot."), which is Eli
+  // hallucinated by Flash and mis-attributed as part of Tim's outgoing
+  // message. Eli's replies come from Kindroid, never from Flash.
+  const outputScope =
+    "\n\n[OUTPUT SCOPE — STRICT]\n" +
+    "Your response must consist EXCLUSIVELY of Tim's outgoing message: " +
+    "the optional leading _(*ambient emote*)_ plus Tim's verbatim dialog " +
+    "(transcribed from audio or taken from TIM'S INPUT), with optional " +
+    "inline tonal-shift emotes INSIDE Tim's speech. That's the entire output. " +
+    "DO NOT generate Eli's response, Eli's emotes, any dialog addressed TO Tim, " +
+    "or any continuation of the conversation. You are the bridge layer; Eli's " +
+    "replies are generated downstream by Kindroid, not by you. The moment " +
+    "Tim's transcribed content ends, your output ends.";
+
   const inputLabel = input.timDialog
     ? `[TIM'S INPUT]\n${input.timDialog}`
     : `[TIM'S INPUT]\n(Tim sent audio only — transcribe and build Tim's dialog from the audio.)`;
-  const header = `[SENSOR SNAPSHOT]\n${input.sensorSnapshot}\n\n${inputLabel}${audioHint}`;
+  const header = `[SENSOR SNAPSHOT]\n${input.sensorSnapshot}\n\n${inputLabel}${audioHint}${outputScope}`;
   parts.push({ text: header });
   for (const img of input.images ?? []) {
     parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
