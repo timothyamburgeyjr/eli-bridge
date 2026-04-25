@@ -11,6 +11,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAudioRecorder } from "expo-audio";
+import {
+  activateKeepAwakeAsync,
+  deactivateKeepAwake,
+} from "expo-keep-awake";
 import { C } from "@/constants/theme";
 import { useChat } from "@/stores/chatStore";
 import { useMode } from "@/stores/modeStore";
@@ -19,6 +23,8 @@ import {
   ensureRecordingPermission,
   VOICE_RECORDING_PRESET,
 } from "@/services/audio";
+
+const KEEP_AWAKE_TAG = "eli-bridge-driving";
 
 /**
  * Full-screen Driving Mode overlay. Any tap on the body toggles recording —
@@ -64,6 +70,24 @@ export function DrivingOverlay() {
         timerRef.current = null;
       }
     }
+  }, [driving]);
+
+  // Hold a wake-lock while Driving Mode is active. Without this the screen
+  // sleeps mid-conversation and the audio pipeline (recorder + ElevenLabs
+  // playback) stops being driven, which leaves Tim talking to a frozen app.
+  useEffect(() => {
+    if (!driving) return;
+    activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {
+      // best-effort; rare on Android, but a failed activation shouldn't
+      // crash the overlay
+    });
+    return () => {
+      try {
+        deactivateKeepAwake(KEEP_AWAKE_TAG);
+      } catch {
+        // already deactivated
+      }
+    };
   }, [driving]);
 
   // Force-speak every new Eli reply while Driving Mode is on. Watches the
