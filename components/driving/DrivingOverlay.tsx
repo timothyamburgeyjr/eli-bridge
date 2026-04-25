@@ -21,6 +21,8 @@ import { useMode } from "@/stores/modeStore";
 import { useAudio } from "@/stores/audioStore";
 import {
   ensureRecordingPermission,
+  setPlaybackAudioMode,
+  setRecordingAudioMode,
   VOICE_RECORDING_PRESET,
 } from "@/services/audio";
 
@@ -87,6 +89,18 @@ export function DrivingOverlay() {
       } catch {
         // already deactivated
       }
+    };
+  }, [driving]);
+
+  // Force the audio session into playback mode on entry so Eli's TTS routes
+  // through the loudspeaker (not the earpiece-friendly comm path that the
+  // session-start setupBridgeAudioMode leaves us in). Restore recording mode
+  // on exit so the regular InputBar PTT keeps working.
+  useEffect(() => {
+    if (!driving) return;
+    setPlaybackAudioMode();
+    return () => {
+      setRecordingAudioMode();
     };
   }, [driving]);
 
@@ -174,6 +188,9 @@ export function DrivingOverlay() {
         const uri = recorderRef.current.uri;
         setRecording(false);
         setElapsed(0);
+        // Flip back to playback mode so Eli's incoming TTS reply hits the
+        // loudspeaker. Fire-and-forget — don't block the send on it.
+        setPlaybackAudioMode();
         if (uri) {
           addAttachment({
             kind: "audio",
@@ -198,6 +215,10 @@ export function DrivingOverlay() {
       return;
     }
     try {
+      // Switch the audio session into recording mode before grabbing the
+      // mic. Without this the prepareToRecordAsync call below can fail
+      // silently after a TTS playback left the session in playback mode.
+      await setRecordingAudioMode();
       await recorderRef.current.prepareToRecordAsync();
       recorderRef.current.record();
       setRecording(true);
