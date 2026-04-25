@@ -2,6 +2,10 @@ import type { SensorSnapshot } from "@/types";
 import { getCurrentLocation, inferActivityFromSpeed } from "@/services/location";
 import { useMode } from "@/stores/modeStore";
 import { useSettings } from "@/stores/settingsStore";
+import {
+  processArrivalTick,
+  resetArrivalWatcher,
+} from "./arrivalWatcher";
 
 /**
  * Poll interval in ms. Balance: short enough to catch driving within ~30s of
@@ -25,6 +29,10 @@ async function tick() {
     };
     const drivingAutoEnabled = useSettings.getState().drivingModeAuto;
     useMode.getState().evaluateTransitions(snapshot, { drivingAutoEnabled });
+
+    // Same fix feeds the arrival watcher — re-geocodes only when Tim has
+    // moved meaningfully so we don't burn the Places API on stationary noise.
+    await processArrivalTick(loc);
   } catch {
     // swallow — poll is best-effort; next tick will try again
   } finally {
@@ -41,6 +49,10 @@ async function tick() {
  */
 export function startDrivingPoll() {
   if (pollTimer) return;
+  // Reset arrival state on session start so emitted-this-session and the
+  // last-place anchor don't carry across sessions (the previous trip's
+  // destination shouldn't suppress today's arrival back at the same place).
+  resetArrivalWatcher();
   // Fire an immediate tick so driving is detectable as soon as the session
   // begins. Subsequent ticks run on the interval.
   tick();
