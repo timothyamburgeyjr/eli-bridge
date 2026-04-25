@@ -243,17 +243,16 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
             // adding this, brief camera flicker was reported when the
             // permission useEffect re-fired mid-session.
             //
-            // mode="picture" + audio={false} prevents the camera from grabbing
-            // an audio session it doesn't need. The AudioSnap recorder spinning
-            // up on shutter would otherwise contend with the camera's own audio
-            // session and cause the preview surface to briefly re-init.
+            // mode="picture" is the SDK default but pinned explicitly so a
+            // future SDK default-change can't quietly flip us into the
+            // video-capable surface (which holds an audio session and is
+            // more sensitive to mid-stream config changes).
             <CameraView
               key="capture-camera"
               ref={cameraRef}
               style={styles.camera}
               facing="back"
               mode="picture"
-              audio={false}
             />
           ) : (
             <View style={styles.permView}>
