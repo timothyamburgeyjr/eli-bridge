@@ -100,9 +100,14 @@ export const useAudio = create<AudioState>((set, get) => ({
       return;
     }
 
-    // Cache miss: generate.
+    // Cache miss: generate. Set currentMessageId here (not just when playback
+    // starts) so consumers reading `cache[currentMessageId]` see a defined
+    // entry during the generating phase. Without this, Driving Mode's tap
+    // gate flickers off between "Eli message lands" and "audio starts
+    // playing", letting a tap kick off a new recording mid-TTS.
     set((s) => ({
       cache: { ...s.cache, [messageId]: { messageId, status: "generating" } },
+      currentMessageId: messageId,
     }));
 
     try {
@@ -118,6 +123,7 @@ export const useAudio = create<AudioState>((set, get) => ({
               error: "No dialog to speak (emote-only message)",
             },
           },
+          currentMessageId: null,
         }));
         return;
       }
@@ -134,6 +140,7 @@ export const useAudio = create<AudioState>((set, get) => ({
       const msg = err instanceof Error ? err.message : String(err);
       set((s) => ({
         cache: { ...s.cache, [messageId]: { messageId, status: "error", error: msg } },
+        currentMessageId: null,
       }));
     }
   },
