@@ -90,7 +90,10 @@ interface ChatState {
   removeAttachment: (id: string) => void;
   clearAttachments: () => void;
 
-  sendMessage: (dialog: string) => Promise<void>;
+  sendMessage: (
+    dialog: string,
+    opts?: { ambientPing?: boolean }
+  ) => Promise<void>;
   captureScene: (photoPaths: string[], note?: string) => Promise<void>;
 
   /**
@@ -298,13 +301,16 @@ export const useChat = create<ChatState>((set, get) => ({
     });
   },
 
-  sendMessage: async (dialog) => {
+  sendMessage: async (dialog, opts) => {
     const text = dialog.trim();
     const state = get();
     const attachments = state.pending;
+    const ambientPing = opts?.ambientPing === true;
 
-    // Must have either text or at least one attachment to send
-    if (!text && attachments.length === 0) return;
+    // Must have either text, an attachment, or be an ambient ping. Ambient
+    // pings are emote-only sends triggered from the live-context banner —
+    // they let Tim push the current scene to Eli without typing or recording.
+    if (!text && attachments.length === 0 && !ambientPing) return;
 
     // Re-entry guard: if a send is already in flight, drop this call.
     // Before this guard the InputBar's send button stayed tappable during
@@ -322,6 +328,10 @@ export const useChat = create<ChatState>((set, get) => ({
     }
 
     // ── Offline guard ────────────────────────────────────────────────
+    // Ambient pings are stale by the time we reconnect — drop them on
+    // offline rather than queuing.
+    if (ambientPing && isOffline()) return;
+
     // If the device is offline, don't even attempt Gemini/Kindroid calls.
     // Queue the message + show a "queued" Tim bubble in the chat. The
     // queue drainer will replay this via sendMessage once we're online.
@@ -368,7 +378,7 @@ export const useChat = create<ChatState>((set, get) => ({
       from: "tim",
       time: timeString(),
       emote: "",
-      dialog: text || "(audio message)",
+      dialog: ambientPing ? "" : text || "(audio message)",
       attachments: attachments.map((a) => ({
         type: a.kind,
         localPath: a.localPath,
@@ -544,7 +554,10 @@ export const useChat = create<ChatState>((set, get) => ({
       // example) don't have a preceding blank line, so they survive.
       const safeBody = stripHallucinatedContinuation(assembled.body);
       let finalRaw: string;
-      if (text) {
+      if (ambientPing) {
+        // Emote-only — no body, no Tim words. Eli sees just the scene.
+        finalRaw = ambient ? `_(*${ambient}*)_` : "";
+      } else if (text) {
         const timWithEmotes = convertTimAsterisksToEmotes(text);
         finalRaw = ambient ? `_(*${ambient}*)_ ${timWithEmotes}` : timWithEmotes;
       } else {
@@ -556,7 +569,7 @@ export const useChat = create<ChatState>((set, get) => ({
         from: "tim",
         time: timeString(),
         emote: ambient,
-        dialog: text ? convertTimAsterisksToEmotes(text) : safeBody,
+        dialog: ambientPing ? "" : text ? convertTimAsterisksToEmotes(text) : safeBody,
         raw: finalRaw,
         attachments: pendingTim.attachments,
       };

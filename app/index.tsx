@@ -254,13 +254,20 @@ export default function Main() {
       )}
 
       {liveContext.length > 0 && source === "live" && (
-        <View style={styles.contextBanner}>
+        <Pressable
+          onPress={() => useChat.getState().sendMessage("", { ambientPing: true })}
+          disabled={status === "assembling" || status === "sending"}
+          style={({ pressed }) => [
+            styles.contextBanner,
+            pressed && { opacity: 0.6 },
+          ]}
+        >
           <Text style={styles.contextLabel}>
-            📡 Live context
+            📡 Live context · tap to share
             {lastEmoteChars ? `  ·  last send ${lastEmoteChars} chars` : ""}
           </Text>
           <Text style={styles.contextChips}>{liveContext.join("  •  ")}</Text>
-        </View>
+        </Pressable>
       )}
 
       <StagingTray />
