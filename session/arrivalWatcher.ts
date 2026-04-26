@@ -2,6 +2,7 @@ import type { LocationData } from "@/types";
 import { distanceMeters, isAtHome } from "@/services/location";
 import { reverseGeocode } from "@/services/places";
 import { useChat } from "@/stores/chatStore";
+import { pushArrivalScene } from "./sceneUpdater";
 
 /**
  * Arrival detection for LocationCards. Sits on top of the same GPS poller
@@ -203,6 +204,10 @@ function emitArrivalCard(p: PlaceFix): void {
   };
   console.log(`[arrival] emitting LocationCard: ${p.name}`);
   useChat.getState().appendSystemCard(card);
+  // Also push an Eli-centric scene update so Kindroid's persistent backdrop
+  // reflects where Tim is now. Fire-and-forget — the LocationCard renders
+  // regardless of whether the scene push succeeds.
+  pushArrivalScene({ name: p.name, placeType: p.placeType });
 }
 
 function prettyCategory(t?: string): string {
