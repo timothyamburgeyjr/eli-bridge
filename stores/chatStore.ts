@@ -23,6 +23,10 @@ import { resolveOrCreateProfilePath } from "@/people/profileLinker";
 import { useMode } from "@/stores/modeStore";
 import { useSettings } from "@/stores/settingsStore";
 import { isOffline, useConnection } from "@/stores/connectionStore";
+import {
+  pushVenueEnteredScene,
+  pushVenueExitedScene,
+} from "@/session/sceneUpdater";
 import { persistQueue, hydrateQueue } from "@/session/queuePersistence";
 import type { SpeakerLabel, FaceLabel } from "@/types";
 
@@ -577,6 +581,9 @@ export const useChat = create<ChatState>((set, get) => ({
       }
 
       // VenueMode transition card — announces entry/exit in the chat stream.
+      // Also push an Eli-centric scene update to Kindroid so his persistent
+      // backdrop reflects the change. Both are fire-and-forget — sendMessage
+      // doesn't wait on the scene push.
       const modeCards: ChatItem[] = [];
       if (modeTransitions.venueEntered) {
         modeCards.push({
@@ -587,6 +594,10 @@ export const useChat = create<ChatState>((set, get) => ({
           venueType: modeTransitions.venueEntered.placeType,
           note: "Queue dwells suppressed · rides enabled",
         } as unknown as ChatItem);
+        pushVenueEnteredScene({
+          name: modeTransitions.venueEntered.name,
+          placeType: modeTransitions.venueEntered.placeType,
+        });
       }
       if (modeTransitions.venueExited) {
         modeCards.push({
@@ -597,6 +608,7 @@ export const useChat = create<ChatState>((set, get) => ({
           venueType: modeTransitions.venueExited.placeType,
           note: "Exited — venue mode off",
         } as unknown as ChatItem);
+        pushVenueExitedScene({ name: modeTransitions.venueExited.name });
       }
 
       set({
