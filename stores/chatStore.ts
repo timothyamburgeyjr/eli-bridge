@@ -63,7 +63,12 @@ interface ChatState {
   status: SendStatus;
   errorMessage: string | null;
   lastEmoteChars: number | null;
-  lastFilteredContext: string[] | null;
+  /**
+   * Continuously-updated context preview reflecting Tim's current situation
+   * (location, weather, activity, etc.). Refreshed on each GPS poller tick
+   * regardless of whether a message is being sent.
+   */
+  liveContext: string[];
   sensorOverride: SensorSnapshot | null;
 
   /** Attachments staged for the next send. */
@@ -111,6 +116,12 @@ interface ChatState {
   appendSystemCard: (card: ChatItem) => void;
 
   /**
+   * Replace the live-context preview. Called by the GPS poller on every
+   * tick with the freshest derivation of Tim's current situation.
+   */
+  setLiveContext: (chips: string[]) => void;
+
+  /**
    * Commit an UnknownPersonCard's embedding to a named Person. Handles
    * cross-modal linking — if the name matches an existing Person card, the
    * embedding gets attached to that same card (so a voice-only Hank gains
@@ -153,17 +164,6 @@ function buildHistory(messages: ChatItem[]): Content[] {
     }
   }
   return history;
-}
-
-function contextPreview(filtered: SensorSnapshot): string[] {
-  const out: string[] = [];
-  if (filtered.location?.placeName) out.push(`📍 ${filtered.location.placeName}`);
-  if (filtered.weather) out.push(`🌤️ ${Math.round(filtered.weather.temp)}°F ${filtered.weather.conditions}`);
-  if (filtered.activity) out.push(`🚶 ${filtered.activity}`);
-  if (filtered.nowPlaying) out.push(`🎵 ${filtered.nowPlaying.track} — ${filtered.nowPlaying.artist}`);
-  if (filtered.companions?.length) out.push(`🎭 ${filtered.companions.join(", ")}`);
-  if (filtered.health?.heartRate) out.push(`💓 ${filtered.health.heartRate} bpm`);
-  return out;
 }
 
 /**
@@ -243,7 +243,7 @@ export const useChat = create<ChatState>((set, get) => ({
   status: "idle",
   errorMessage: null,
   lastEmoteChars: null,
-  lastFilteredContext: null,
+  liveContext: [],
   sensorOverride: null,
   pending: [],
   pendingSceneMemo: null,
@@ -253,6 +253,8 @@ export const useChat = create<ChatState>((set, get) => ({
   draining: false,
 
   setSensorOverride: (sensors) => set({ sensorOverride: sensors }),
+
+  setLiveContext: (chips) => set({ liveContext: chips }),
 
   addAttachment: (a) =>
     set((s) => ({
@@ -275,7 +277,7 @@ export const useChat = create<ChatState>((set, get) => ({
       status: "idle",
       errorMessage: null,
       lastEmoteChars: null,
-      lastFilteredContext: null,
+      liveContext: [],
       pending: [],
       pendingSceneMemo: null,
       offlineQueue: [],
@@ -291,7 +293,6 @@ export const useChat = create<ChatState>((set, get) => ({
       status: "idle",
       errorMessage: null,
       lastEmoteChars: null,
-      lastFilteredContext: null,
       pending: [],
       pendingSceneMemo: null,
     });
@@ -620,7 +621,6 @@ export const useChat = create<ChatState>((set, get) => ({
         ],
         status: "sending",
         lastEmoteChars: ambient.length,
-        lastFilteredContext: contextPreview(assembled.filteredSensors),
         pending: [], // attachments consumed
         pendingSceneMemo: null, // scene memo consumed
       });

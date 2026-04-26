@@ -43,7 +43,7 @@ export default function Main() {
   const status = useChat((s) => s.status);
   const errorMessage = useChat((s) => s.errorMessage);
   const lastEmoteChars = useChat((s) => s.lastEmoteChars);
-  const lastFilteredContext = useChat((s) => s.lastFilteredContext);
+  const liveContext = useChat((s) => s.liveContext);
   const sceneStatus = useChat((s) => s.sceneStatus);
   const sceneError = useChat((s) => s.sceneError);
   const pendingSceneMemo = useChat((s) => s.pendingSceneMemo);
@@ -253,10 +253,13 @@ export default function Main() {
         </View>
       )}
 
-      {lastFilteredContext && lastFilteredContext.length > 0 && source === "live" && (
+      {liveContext.length > 0 && source === "live" && (
         <View style={styles.contextBanner}>
-          <Text style={styles.contextLabel}>Last context sent ({lastEmoteChars} chars):</Text>
-          <Text style={styles.contextChips}>{lastFilteredContext.join("  •  ")}</Text>
+          <Text style={styles.contextLabel}>
+            📡 Live context
+            {lastEmoteChars ? `  ·  last send ${lastEmoteChars} chars` : ""}
+          </Text>
+          <Text style={styles.contextChips}>{liveContext.join("  •  ")}</Text>
         </View>
       )}
 

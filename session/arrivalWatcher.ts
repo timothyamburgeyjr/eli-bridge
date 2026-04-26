@@ -63,6 +63,12 @@ interface PlaceFix {
 
 interface ArrivalState {
   lastGeocodedFix: { lat: number; lon: number } | null;
+  /**
+   * Most recent successful reverseGeocode result, regardless of whether
+   * it triggered an arrival card. Used by the live-context banner so it
+   * shows where Tim is right now, not where he last "arrived."
+   */
+  lastGeocodeResult: PlaceFix | null;
   lastPlace: PlaceFix | null;
   candidate: (PlaceFix & { firstSeenAt: number }) | null;
   emittedThisSession: Set<string>;
@@ -70,6 +76,7 @@ interface ArrivalState {
 
 const state: ArrivalState = {
   lastGeocodedFix: null,
+  lastGeocodeResult: null,
   lastPlace: null,
   candidate: null,
   emittedThisSession: new Set(),
@@ -116,8 +123,19 @@ export async function processArrivalTick(loc: LocationData): Promise<void> {
     // Lost POI context (or geocode failed) — clear any pending candidate so
     // the dwell counter restarts cleanly the next time we land somewhere.
     state.candidate = null;
+    state.lastGeocodeResult = null;
     return;
   }
+
+  // Always track the latest geocode for the live-context banner, even when
+  // it's not arrival-worthy — Tim wants to see where he is now, not where
+  // he last "arrived" by the dwell rules.
+  state.lastGeocodeResult = {
+    placeId: place.placeId,
+    name: place.name,
+    placeType: place.placeType,
+    address: place.address,
+  };
 
   // Don't card things like raw street addresses or political boundaries.
   if (!place.placeType || !ARRIVAL_PLACE_TYPES.has(place.placeType)) {
@@ -221,7 +239,25 @@ function prettyCategory(t?: string): string {
  */
 export function resetArrivalWatcher(): void {
   state.lastGeocodedFix = null;
+  state.lastGeocodeResult = null;
   state.lastPlace = null;
   state.candidate = null;
   state.emittedThisSession.clear();
+}
+
+/**
+ * Latest known place from the most recent successful reverse-geocode,
+ * regardless of arrival-worthy filtering. Returns null when the latest fix
+ * didn't resolve to a place (or geocode failed). Used by the live-context
+ * banner to avoid double-geocoding — the watcher already does the work.
+ */
+export function getLastKnownPlace(): {
+  name: string;
+  placeType?: string;
+} | null {
+  if (!state.lastGeocodeResult) return null;
+  return {
+    name: state.lastGeocodeResult.name,
+    placeType: state.lastGeocodeResult.placeType,
+  };
 }

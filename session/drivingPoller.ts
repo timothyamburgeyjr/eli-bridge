@@ -1,12 +1,18 @@
 import type { SensorSnapshot } from "@/types";
 import type { ChatItem } from "@/components/chat/ChatStream";
-import { getCurrentLocation, inferActivityFromSpeed } from "@/services/location";
+import {
+  getCurrentLocation,
+  inferActivityFromSpeed,
+  isAtHome,
+} from "@/services/location";
+import { getCurrentWeather } from "@/services/weather";
 import { useMode } from "@/stores/modeStore";
 import { useSettings } from "@/stores/settingsStore";
 import { useChat } from "@/stores/chatStore";
 import {
   processArrivalTick,
   resetArrivalWatcher,
+  getLastKnownPlace,
 } from "./arrivalWatcher";
 import {
   pushVenueEnteredScene,
@@ -78,11 +84,52 @@ async function tick() {
     // Same fix feeds the arrival watcher — re-geocodes only when Tim has
     // moved meaningfully so we don't burn the Places API on stationary noise.
     await processArrivalTick(loc);
+
+    // Update the live-context banner. Reuses already-fetched data:
+    // - Place name from arrivalWatcher (just updated above)
+    // - Weather from getCurrentWeather (5-min / 500m cache)
+    // - Activity derived from GPS speed (free)
+    // No additional API calls beyond what the tick already did.
+    await updateLiveContext(loc, snapshot);
   } catch {
     // swallow — poll is best-effort; next tick will try again
   } finally {
     pollInFlight = false;
   }
+}
+
+async function updateLiveContext(
+  loc: { latitude: number; longitude: number },
+  snapshot: SensorSnapshot
+): Promise<void> {
+  const chips: string[] = [];
+
+  // Location chip — at-home shortcut, otherwise the latest geocoded place
+  if (isAtHome({ latitude: loc.latitude, longitude: loc.longitude })) {
+    chips.push("📍 Home");
+  } else {
+    const place = getLastKnownPlace();
+    if (place) chips.push(`📍 ${place.name}`);
+  }
+
+  // Weather chip — cached, near-free to call repeatedly
+  try {
+    const w = await getCurrentWeather(loc.latitude, loc.longitude);
+    if (w) {
+      chips.push(`🌤️ ${Math.round(w.temp)}°F ${w.conditions}`);
+    }
+  } catch {
+    // weather is best-effort — banner still useful without it
+  }
+
+  // Activity chip
+  if (snapshot.activity) chips.push(`🚶 ${snapshot.activity}`);
+
+  // Venue indicator — surface VenueMode so it's not a hidden state
+  const venueBoundary = useMode.getState().venueBoundary;
+  if (venueBoundary) chips.push(`🎢 ${venueBoundary.name}`);
+
+  useChat.getState().setLiveContext(chips);
 }
 
 function nowTimeString(): string {
