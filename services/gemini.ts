@@ -162,7 +162,16 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
 
   const contents: Content[] = [...(input.history ?? []), { role: "user", parts }];
 
-  const result = await withRetry(() => flash().generateContent({ contents }));
+  // 30s deadline — flash on this prompt typically returns in <3s. Anything
+  // past 30s is almost certainly a network hang (cellular dead zone, etc.)
+  // and we want to surface that as a "timeout" error so chatStore's
+  // transient-error path queues the message for retry instead of locking
+  // Drive Mode's overlay until the OS eventually severs the socket.
+  const result = await withDeadline(
+    withRetry(() => flash().generateContent({ contents })),
+    30_000,
+    "assembleEmote"
+  );
   const text = result.response.text();
   return parseAssembledMessage(text);
 }
@@ -177,8 +186,14 @@ export async function analyzeScene(opts: {
   const parts: Part[] = [{ text: opts.prompt }];
   for (const img of opts.images ?? []) parts.push({ inlineData: img });
   for (const audio of opts.audios ?? []) parts.push({ inlineData: audio });
-  const result = await withRetry(() =>
-    pro().generateContent({ contents: [{ role: "user", parts }] })
+  // 45s — Pro is slower than Flash and scene captures can include multiple
+  // images. Past 45s is a hang.
+  const result = await withDeadline(
+    withRetry(() =>
+      pro().generateContent({ contents: [{ role: "user", parts }] })
+    ),
+    45_000,
+    "analyzeScene"
   );
   return result.response.text().trim();
 }
@@ -253,10 +268,17 @@ export async function addAudioTags(
     (emoteContext ? `EMOTE CONTEXT: ${emoteContext}\n\n` : "") +
     `DIALOG: ${dialog}`;
 
-  const result = await withRetry(() =>
-    flash().generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-    })
+  // 15s — short prompt, near-instant Flash response in steady state. Tag
+  // injection failure isn't worth blocking TTS playback; on timeout, the
+  // audioStore catch will surface error and the user can replay later.
+  const result = await withDeadline(
+    withRetry(() =>
+      flash().generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      })
+    ),
+    15_000,
+    "addAudioTags"
   );
   return result.response.text().trim();
 }
@@ -302,10 +324,17 @@ export async function condensePersonContext(
     `\n[CURRENT SESSION]\n${input.sessionContext}\n\n` +
     `[PROFILE PAGE]\n${input.pageMarkdown}`;
 
-  const result = await withRetry(() =>
-    neutralFlash().generateContent({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-    })
+  // 15s — pure summarization, fast in steady state. On timeout the caller
+  // (personContext) returns the unfiltered profile, which is a graceful
+  // degradation that doesn't block the send.
+  const result = await withDeadline(
+    withRetry(() =>
+      neutralFlash().generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      })
+    ),
+    15_000,
+    "condensePersonContext"
   );
   const out = result.response.text().trim();
   if (out.length <= limit) return out;
@@ -316,8 +345,14 @@ export async function condensePersonContext(
 
 export async function condenseEmote(emoteText: string, charLimit: number): Promise<string> {
   const prompt = `The following emote block is ${emoteText.length} characters and must be trimmed to under ${charLimit} characters while keeping the Tier 1 scene intact. Cut Tier 3 critical-alert material first, then Tier 2 active-texture, then compress Tier 1 language if still over budget. Return ONLY the trimmed emote text, without the _(*...*)_ wrapper.\n\n[EMOTE]\n${emoteText}`;
-  const result = await withRetry(() =>
-    flash().generateContent({ contents: [{ role: "user", parts: [{ text: prompt }] }] })
+  // 15s — fallback path; assembleEmote already has its own 30s budget so
+  // this only runs when the first call returned an over-budget emote.
+  const result = await withDeadline(
+    withRetry(() =>
+      flash().generateContent({ contents: [{ role: "user", parts: [{ text: prompt }] }] })
+    ),
+    15_000,
+    "condenseEmote"
   );
   return result.response.text().trim();
 }

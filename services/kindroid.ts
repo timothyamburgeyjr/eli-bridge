@@ -3,8 +3,16 @@ import { CONFIG } from "@/constants/config";
 
 const BASE_URL = "https://api.kindroid.ai/v1";
 
-// Per CLAUDE.md: send-message waits up to 300s, other endpoints 30s.
-const TIMEOUT_SEND = 300_000;
+// 90s for /send-message — Kindroid's LLM typically replies in 5-30s, so 90s
+// is generous headroom. The CLAUDE.md spec called for 300s but in practice
+// that left Drive Mode frozen for 5+ min on cellular dead zones (Tim's
+// real-world report). 30s for everything else (update-info, journal-create).
+//
+// Tradeoff: if the request reaches Kindroid but the response gets stuck en
+// route, we time out and the queue drainer may replay the send when the
+// network returns — Eli would get the message twice. That's an edge-case
+// risk; the alternative (locking the whole pipeline for minutes) is worse.
+const TIMEOUT_SEND = 90_000;
 const TIMEOUT_OTHER = 30_000;
 
 // ── Fetch with timeout + retry ──────────────────────────────────────

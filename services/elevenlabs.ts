@@ -3,6 +3,13 @@ import { requireEnv } from "./env";
 
 const BASE_URL = "https://api.elevenlabs.io/v1";
 
+// Hard cap on a single synthesis fetch. ElevenLabs flash typically returns
+// in <2s for short Eli replies; 30s is generous headroom that still lets a
+// cellular dead-zone hang surface as a real error rather than locking the
+// audio pipeline. AudioStore catches the throw and clears currentMessageId
+// so Drive Mode's overlay unsticks.
+const SYNTHESIS_TIMEOUT_MS = 30_000;
+
 // Default to eleven_v3 — the only current ElevenLabs model that interprets
 // audio tags like [laughs] / [sighs] / [whispers] as paralinguistic cues rather
 // than literal words. Also the most expressive model overall. Latency is a bit
@@ -43,15 +50,33 @@ export async function synthesizeToFile(
     voice_settings: { ...DEFAULT_VOICE_SETTINGS, ...options.voiceSettings },
   };
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      "xi-api-key": apiKey,
-      "Content-Type": "application/json",
-      Accept: "audio/mpeg",
-    },
-    body: JSON.stringify(body),
-  });
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), SYNTHESIS_TIMEOUT_MS);
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method: "POST",
+      headers: {
+        "xi-api-key": apiKey,
+        "Content-Type": "application/json",
+        Accept: "audio/mpeg",
+      },
+      body: JSON.stringify(body),
+      signal: ctl.signal,
+    });
+  } catch (err) {
+    if (
+      err instanceof DOMException && err.name === "AbortError" ||
+      (err instanceof Error && err.name === "AbortError")
+    ) {
+      throw new Error(
+        `ElevenLabs synth timed out after ${SYNTHESIS_TIMEOUT_MS / 1000}s`
+      );
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "(no body)");
