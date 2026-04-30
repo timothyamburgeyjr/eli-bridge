@@ -9,6 +9,14 @@ import { getCurrentWeather } from "@/services/weather";
 import { useMode } from "@/stores/modeStore";
 import { useSettings } from "@/stores/settingsStore";
 import { useChat } from "@/stores/chatStore";
+import { useAudio } from "@/stores/audioStore";
+
+// Stuck-state thresholds for the watchdog. Generous bounds — the upstream
+// timeouts in services/gemini.ts, /elevenlabs.ts, /kindroid.ts should mean
+// these are never hit. They exist as a backstop in case a future change
+// introduces an unbounded path.
+const STUCK_SEND_MS = 180_000; // 3 min — covers worst-case stack of Gemini + Kindroid
+const STUCK_GENERATING_MS = 75_000; // 75s — addAudioTags(15s) + synthesizeToFile(30s) + slack
 import {
   processArrivalTick,
   resetArrivalWatcher,
@@ -91,10 +99,46 @@ async function tick() {
     // - Activity derived from GPS speed (free)
     // No additional API calls beyond what the tick already did.
     await updateLiveContext(loc, snapshot);
+
+    // Pipeline watchdog. Belt-and-suspenders for the upstream timeouts:
+    // if a send or TTS generation is stuck past the worst-case bound,
+    // force a reset so Drive Mode unsticks instead of locking Tim out.
+    runStuckStateWatchdog();
   } catch {
     // swallow — poll is best-effort; next tick will try again
   } finally {
     pollInFlight = false;
+  }
+}
+
+function runStuckStateWatchdog(): void {
+  const now = Date.now();
+
+  // chatStore: stuck "assembling" or "sending"
+  const chat = useChat.getState();
+  if (
+    (chat.status === "assembling" || chat.status === "sending") &&
+    chat.sendStartedAt &&
+    now - chat.sendStartedAt > STUCK_SEND_MS
+  ) {
+    chat.forceResetStuckSend(
+      `send pipeline stuck >${Math.round(STUCK_SEND_MS / 1000)}s`
+    );
+  }
+
+  // audioStore: stuck "generating"
+  const audio = useAudio.getState();
+  if (audio.currentMessageId) {
+    const entry = audio.cache[audio.currentMessageId];
+    if (
+      entry?.status === "generating" &&
+      entry.generatingStartedAt &&
+      now - entry.generatingStartedAt > STUCK_GENERATING_MS
+    ) {
+      audio.forceResetStuckGeneration(
+        `TTS generation stuck >${Math.round(STUCK_GENERATING_MS / 1000)}s`
+      );
+    }
   }
 }
 

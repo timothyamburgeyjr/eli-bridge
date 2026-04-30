@@ -69,6 +69,13 @@ interface ChatState {
    * regardless of whether a message is being sent.
    */
   liveContext: string[];
+  /**
+   * Timestamp (ms) of the most recent transition into "assembling". Used by
+   * the watchdog (in drivingPoller) to detect a frozen send pipeline and
+   * recover gracefully — should never be needed if the upstream timeouts
+   * are working, but defends against any path that slips past them.
+   */
+  sendStartedAt: number | null;
   sensorOverride: SensorSnapshot | null;
 
   /** Attachments staged for the next send. */
@@ -123,6 +130,14 @@ interface ChatState {
    * tick with the freshest derivation of Tim's current situation.
    */
   setLiveContext: (chips: string[]) => void;
+
+  /**
+   * Force the send pipeline back to idle. Watchdog-only — exposed so the
+   * GPS poller can recover from stuck "assembling"/"sending" states that
+   * slipped past the upstream timeouts. Posts a user-visible error so Tim
+   * knows the send didn't reach Eli.
+   */
+  forceResetStuckSend: (reason: string) => void;
 
   /**
    * Commit an UnknownPersonCard's embedding to a named Person. Handles
@@ -247,6 +262,7 @@ export const useChat = create<ChatState>((set, get) => ({
   errorMessage: null,
   lastEmoteChars: null,
   liveContext: [],
+  sendStartedAt: null,
   sensorOverride: null,
   pending: [],
   pendingSceneMemo: null,
@@ -258,6 +274,18 @@ export const useChat = create<ChatState>((set, get) => ({
   setSensorOverride: (sensors) => set({ sensorOverride: sensors }),
 
   setLiveContext: (chips) => set({ liveContext: chips }),
+
+  forceResetStuckSend: (reason) => {
+    const s = get();
+    if (s.status !== "assembling" && s.status !== "sending") return;
+    console.warn(`[chatStore] watchdog forcing reset — ${reason}`);
+    set({
+      status: "error",
+      errorMessage:
+        "⚠ Send timed out — connection may be poor. Tap × to clear.",
+      sendStartedAt: null,
+    });
+  },
 
   addAttachment: (a) =>
     set((s) => ({
@@ -390,6 +418,7 @@ export const useChat = create<ChatState>((set, get) => ({
       messages: [...state.messages, pendingTim],
       status: "assembling",
       errorMessage: null,
+      sendStartedAt: Date.now(),
     });
 
     try {
@@ -671,6 +700,7 @@ export const useChat = create<ChatState>((set, get) => ({
       set({
         messages: [...get().messages, eliMsg],
         status: "idle",
+        sendStartedAt: null,
       });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -699,6 +729,7 @@ export const useChat = create<ChatState>((set, get) => ({
             offlineQueue: nextQueue,
             status: "idle",
             errorMessage: null,
+            sendStartedAt: null,
           };
         });
         console.warn("[chatStore] transient send error, queued for retry:", msg);
@@ -706,6 +737,7 @@ export const useChat = create<ChatState>((set, get) => ({
         set({
           status: "error",
           errorMessage: msg,
+          sendStartedAt: null,
         });
       }
     }

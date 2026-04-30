@@ -11,6 +11,9 @@ interface AudioCacheEntry {
   status: AudioStatus;
   path?: string;
   error?: string;
+  /** Timestamp (ms) when the entry transitioned to "generating". Used by the
+   * watchdog to recover from stuck synthesis. */
+  generatingStartedAt?: number;
 }
 
 interface AudioState {
@@ -26,6 +29,13 @@ interface AudioState {
 
   /** Stop the currently-playing audio, if any. */
   stop: () => void;
+
+  /**
+   * Watchdog-only — recover from a stuck "generating" entry that slipped past
+   * the upstream timeouts. Marks the entry as error and clears
+   * currentMessageId so consumers (Drive Mode overlay) unstick.
+   */
+  forceResetStuckGeneration: (reason: string) => void;
 
   /** Reset the cache (e.g. on session end). Does not delete files from disk. */
   clear: () => void;
@@ -61,6 +71,25 @@ export const useAudio = create<AudioState>((set, get) => ({
   clear: () => {
     teardownPlayer();
     set({ cache: {}, currentMessageId: null });
+  },
+
+  forceResetStuckGeneration: (reason) => {
+    const s = get();
+    if (!s.currentMessageId) return;
+    const entry = s.cache[s.currentMessageId];
+    if (!entry || entry.status !== "generating") return;
+    console.warn(`[audioStore] watchdog forcing reset — ${reason}`);
+    set({
+      cache: {
+        ...s.cache,
+        [s.currentMessageId]: {
+          ...entry,
+          status: "error",
+          error: reason,
+        },
+      },
+      currentMessageId: null,
+    });
   },
 
   stop: () => {
@@ -106,7 +135,14 @@ export const useAudio = create<AudioState>((set, get) => ({
     // gate flickers off between "Eli message lands" and "audio starts
     // playing", letting a tap kick off a new recording mid-TTS.
     set((s) => ({
-      cache: { ...s.cache, [messageId]: { messageId, status: "generating" } },
+      cache: {
+        ...s.cache,
+        [messageId]: {
+          messageId,
+          status: "generating",
+          generatingStartedAt: Date.now(),
+        },
+      },
       currentMessageId: messageId,
     }));
 
