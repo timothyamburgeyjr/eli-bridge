@@ -29,6 +29,7 @@ export function SessionJournalCard({ msg }: Props) {
   const [editableTitle, setEditableTitle] = useState(msg.title);
   const [editableBody, setEditableBody] = useState(msg.fullText ?? "");
   const [expanded, setExpanded] = useState(false);
+  const [archiveAttachments, setArchiveAttachments] = useState(true);
   const status = useSession((s) => s.status);
   const errorMessage = useSession((s) => s.errorMessage);
   const saveJournal = useSession((s) => s.saveJournal);
@@ -101,6 +102,33 @@ export function SessionJournalCard({ msg }: Props) {
           />
         ) : null}
 
+        {showActions ? (
+          <Pressable
+            onPress={() => setArchiveAttachments((v) => !v)}
+            style={styles.toggleRow}
+          >
+            <View
+              style={[
+                styles.checkbox,
+                archiveAttachments && styles.checkboxOn,
+              ]}
+            >
+              {archiveAttachments ? (
+                <Text style={styles.checkboxMark}>✓</Text>
+              ) : null}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.toggleLabel}>
+                📎 Archive attachments to vault
+              </Text>
+              <Text style={styles.toggleHint}>
+                Photos + audio dump to vault root, embedded in the journal.
+                Images deleted from the image server after.
+              </Text>
+            </View>
+          </Pressable>
+        ) : null}
+
         <Text style={styles.footerNote}>
           💡 Gemini drafted this from session data. Save writes to your vault root.
         </Text>
@@ -120,7 +148,9 @@ export function SessionJournalCard({ msg }: Props) {
         ) : showActions ? (
           <View style={{ flexDirection: "row", gap: 8 }}>
             <Pressable
-              onPress={() => saveJournal(editableTitle, editableBody)}
+              onPress={() =>
+                saveJournal(editableTitle, editableBody, archiveAttachments)
+              }
               disabled={saving || !editableTitle.trim()}
               style={[
                 styles.saveBtn,
@@ -223,6 +253,37 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
   footerNote: { fontSize: 10, color: C.muted, marginBottom: 8 },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    marginBottom: 8,
+  },
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 5,
+    borderWidth: 1.5,
+    borderColor: C.border,
+    backgroundColor: C.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 1,
+  },
+  checkboxOn: {
+    backgroundColor: C.accent + "33",
+    borderColor: C.accent,
+  },
+  checkboxMark: {
+    color: C.accent,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 14,
+  },
+  toggleLabel: { color: C.text, fontSize: 12, fontWeight: "600" },
+  toggleHint: { color: C.muted, fontSize: 10, marginTop: 2, lineHeight: 14 },
   errorBanner: {
     padding: 8,
     borderRadius: 8,
