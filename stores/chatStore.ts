@@ -23,10 +23,6 @@ import { resolveOrCreateProfilePath } from "@/people/profileLinker";
 import { useMode } from "@/stores/modeStore";
 import { useSettings } from "@/stores/settingsStore";
 import { isOffline, useConnection } from "@/stores/connectionStore";
-import {
-  pushVenueEnteredScene,
-  pushVenueExitedScene,
-} from "@/session/sceneUpdater";
 import { persistQueue, hydrateQueue } from "@/session/queuePersistence";
 import type { SpeakerLabel, FaceLabel } from "@/types";
 
@@ -99,9 +95,41 @@ interface ChatState {
 
   sendMessage: (
     dialog: string,
-    opts?: { ambientPing?: boolean }
+    opts?: { ambientPing?: boolean; briefingContext?: string }
   ) => Promise<void>;
   captureScene: (photoPaths: string[], note?: string) => Promise<void>;
+
+  /**
+   * Drop a SavedPlaceCard into the chat in the "pending" state. Tim picks
+   * the action from the card itself (Brief now / Save for later).
+   */
+  addSavedPlace: (place: {
+    placeId: string;
+    name: string;
+    category?: string;
+    address?: string;
+    distanceM?: number;
+    rating?: number;
+    openNow?: boolean;
+  }) => void;
+
+  /**
+   * Flip a saved-place card from "pending" → "saved" (awaiting bundled brief).
+   */
+  markPlaceSavedForBundle: (cardId: string) => void;
+
+  /**
+   * Brief Eli on a single saved place — sends an emote-only message anchored
+   * on the place. Flips the card to "briefed" on success.
+   */
+  briefSavedPlace: (cardId: string) => Promise<void>;
+
+  /**
+   * Bundle every "saved" placeStatus card into one Gemini-composed brief.
+   * Optional one-liner from Tim is woven in. Flips included cards to
+   * "briefed" on success and drops a summary card.
+   */
+  briefAllSavedPlaces: (optionalNote?: string) => Promise<void>;
 
   /**
    * Replay queued sends in FIFO order through the normal sendMessage path.
@@ -256,6 +284,58 @@ function condenseForKindroid(richSceneText: string, note?: string): string {
   return seed.slice(0, 157).replace(/\s+\S*$/, "") + "…";
 }
 
+/**
+ * Compose the briefingContext string for a single Save Place "Brief Eli now"
+ * tap. Gemini will use this as the anchor for an arrival emote.
+ */
+function composeSinglePlaceBrief(card: {
+  name: string;
+  category?: string;
+  address?: string;
+  time: string;
+}): string {
+  const parts: string[] = [`Tim is logging arrival at ${card.name}.`];
+  if (card.category) parts.push(`Type: ${card.category}.`);
+  if (card.address) parts.push(`Address: ${card.address}.`);
+  parts.push(`Time saved: ${card.time}.`);
+  return parts.join(" ");
+}
+
+/**
+ * Compose the briefingContext string for a bundled brief (multiple saved
+ * places at once). Gemini narrates the flow from the timeline; the optional
+ * note from Tim provides the interpretation.
+ */
+function composeBundledBrief(
+  cards: Array<{
+    name: string;
+    category?: string;
+    address?: string;
+    time: string;
+  }>,
+  optionalNote?: string
+): string {
+  const lines: string[] = [
+    "Tim is briefing Eli on a sequence of places he visited today:",
+  ];
+  for (const c of cards) {
+    const cat = c.category ? ` (${c.category})` : "";
+    const addr = c.address ? ` — ${c.address}` : "";
+    lines.push(`- ${c.time} ${c.name}${cat}${addr}`);
+  }
+  if (optionalNote && optionalNote.trim()) {
+    lines.push("");
+    lines.push(`Tim's framing for the day: "${optionalNote.trim()}"`);
+  }
+  lines.push("");
+  lines.push(
+    "Build a first-person Tim emote that narrates the flow between these " +
+      "places. Use the timestamps for pacing and the categories for texture. " +
+      "If Tim provided a framing, weave it through the narrative."
+  );
+  return lines.join("\n");
+}
+
 export const useChat = create<ChatState>((set, get) => ({
   messages: [],
   status: "idle",
@@ -300,6 +380,106 @@ export const useChat = create<ChatState>((set, get) => ({
   appendSystemCard: (card) =>
     set((s) => ({ messages: [...s.messages, card] })),
 
+  addSavedPlace: (place) => {
+    const card: ChatItem = {
+      id: `place-${place.placeId}-${Date.now()}`,
+      from: "savedplace",
+      time: timeString(),
+      placeId: place.placeId,
+      name: place.name,
+      category: place.category,
+      address: place.address,
+      distanceM: place.distanceM,
+      rating: place.rating,
+      openNow: place.openNow,
+      placeStatus: "pending",
+    } as unknown as ChatItem;
+    set((s) => ({ messages: [...s.messages, card] }));
+  },
+
+  markPlaceSavedForBundle: (cardId) => {
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.id === cardId && m.from === "savedplace"
+          ? ({ ...m, placeStatus: "saved" } as unknown as ChatItem)
+          : m
+      ),
+    }));
+  },
+
+  briefSavedPlace: async (cardId) => {
+    const card = get().messages.find(
+      (m) => m.id === cardId && m.from === "savedplace"
+    ) as
+      | (ChatItem & {
+          placeId: string;
+          name: string;
+          category?: string;
+          address?: string;
+        })
+      | undefined;
+    if (!card) return;
+
+    const briefingContext = composeSinglePlaceBrief(card);
+    await get().sendMessage("", { ambientPing: true, briefingContext });
+
+    // Flip to briefed regardless of send outcome — if it failed it'll show
+    // up in the chat as an error/queued bubble, but the card status
+    // shouldn't stay "pending" (the user clearly intended to brief it).
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        m.id === cardId && m.from === "savedplace"
+          ? ({ ...m, placeStatus: "briefed" } as unknown as ChatItem)
+          : m
+      ),
+    }));
+  },
+
+  briefAllSavedPlaces: async (optionalNote) => {
+    const savedCards = get().messages.filter(
+      (m) =>
+        m.from === "savedplace" &&
+        (m as unknown as { placeStatus: string }).placeStatus === "saved"
+    ) as unknown as Array<
+      ChatItem & {
+        placeId: string;
+        name: string;
+        category?: string;
+        address?: string;
+        time: string;
+      }
+    >;
+    if (savedCards.length === 0) return;
+
+    const briefingContext = composeBundledBrief(savedCards, optionalNote);
+    await get().sendMessage("", { ambientPing: true, briefingContext });
+
+    const cardIds = new Set(savedCards.map((c) => c.id));
+    set((s) => ({
+      messages: s.messages.map((m) =>
+        cardIds.has(m.id) && m.from === "savedplace"
+          ? ({ ...m, placeStatus: "briefed" } as unknown as ChatItem)
+          : m
+      ),
+    }));
+
+    // Drop a bundled-brief summary card so Tim has a record of what Eli
+    // now knows. Distinct from the individual SavedPlaceCards which remain
+    // in the chat with their "✓ briefed" pills.
+    const summaryCard: ChatItem = {
+      id: `brief-bundle-${Date.now()}`,
+      from: "briefbundle",
+      time: timeString(),
+      places: savedCards.map((c) => ({
+        name: c.name,
+        category: c.category,
+        time: c.time,
+      })),
+      note: optionalNote,
+    } as unknown as ChatItem;
+    set((s) => ({ messages: [...s.messages, summaryCard] }));
+  },
+
   clear: () => {
     assembler.reset();
     resetPersonContextCache();
@@ -334,6 +514,7 @@ export const useChat = create<ChatState>((set, get) => ({
     const state = get();
     const attachments = state.pending;
     const ambientPing = opts?.ambientPing === true;
+    const briefingContext = opts?.briefingContext;
 
     // Must have either text, an attachment, or be an ambient ping. Ambient
     // pings are emote-only sends triggered from the live-context banner —
@@ -426,14 +607,12 @@ export const useChat = create<ChatState>((set, get) => ({
       const sensors = state.sensorOverride ?? (await gatherSensorSnapshot());
       const history = buildHistory(state.messages);
 
-      // ── Step 1a: Evaluate behavioral mode transitions. VenueMode auto-
-      // entry/exit fires off the snapshot's placeType + GPS; driving auto-
-      // entry begins its 10s grace banner when activity is IN_VEHICLE. The
-      // actual confirm/cancel of that banner is owned by the UI layer.
+      // ── Step 1a: Evaluate behavioral mode transitions. Driving auto-entry
+      // begins its 10s grace banner when activity is IN_VEHICLE; the UI layer
+      // owns the confirm/cancel. Venue transitions are computed but no longer
+      // surfaced as cards — Tim manages venue context via Save Place.
       const drivingAutoEnabled = useSettings.getState().drivingModeAuto;
-      const modeTransitions = useMode
-        .getState()
-        .evaluateTransitions(sensors, { drivingAutoEnabled });
+      useMode.getState().evaluateTransitions(sensors, { drivingAutoEnabled });
 
       const images = await Promise.all(
         attachments.filter((a) => a.kind === "image").map(toInlineBlob)
@@ -568,6 +747,7 @@ export const useChat = create<ChatState>((set, get) => ({
         audios,
         history,
         sceneMemo,
+        briefingContext,
       });
 
       // ── Step 1b: Reconstruct client-side so Tim's text is verbatim.
@@ -623,41 +803,15 @@ export const useChat = create<ChatState>((set, get) => ({
         });
       }
 
-      // VenueMode transition card — announces entry/exit in the chat stream.
-      // Also push an Eli-centric scene update to Kindroid so his persistent
-      // backdrop reflects the change. Both are fire-and-forget — sendMessage
-      // doesn't wait on the scene push.
-      const modeCards: ChatItem[] = [];
-      if (modeTransitions.venueEntered) {
-        modeCards.push({
-          id: `venue-enter-${Date.now()}`,
-          from: "venuemode",
-          time: timeString(),
-          venueName: modeTransitions.venueEntered.name,
-          venueType: modeTransitions.venueEntered.placeType,
-          note: "Queue dwells suppressed · rides enabled",
-        } as unknown as ChatItem);
-        pushVenueEnteredScene({
-          name: modeTransitions.venueEntered.name,
-          placeType: modeTransitions.venueEntered.placeType,
-        });
-      }
-      if (modeTransitions.venueExited) {
-        modeCards.push({
-          id: `venue-exit-${Date.now()}`,
-          from: "venuemode",
-          time: timeString(),
-          venueName: modeTransitions.venueExited.name,
-          venueType: modeTransitions.venueExited.placeType,
-          note: "Exited — venue mode off",
-        } as unknown as ChatItem);
-        pushVenueExitedScene({ name: modeTransitions.venueExited.name });
-      }
+      // VenueMode auto-emission and arrival auto-scene-push were removed —
+      // Tim manages venue/place context via Save Place + Brief, which gives
+      // him control over what Eli sees and when. The internal venue flag
+      // on modeStore is still maintained for future RideCard detection
+      // (Phase 10) but no longer surfaces user-visible cards or scene pushes.
 
       set({
         messages: [
           ...get().messages.slice(0, -1),
-          ...modeCards,
           finalizedTim,
           ...unknownCards,
         ],
