@@ -15,6 +15,7 @@ import {
   prettyPlaceType,
   bestPlaceType,
   NearbyPlace,
+  NEARBY_PLACES_WIDE_RADIUS_M,
 } from "@/services/places";
 import { getCurrentLocation } from "@/services/location";
 
@@ -39,14 +40,16 @@ export function PlacePickerModal({ visible, onClose, onPick }: Props) {
   const [loading, setLoading] = useState(false);
   const [places, setPlaces] = useState<NearbyPlace[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [widened, setWidened] = useState(false);
   const [origin, setOrigin] = useState<{
     latitude: number;
     longitude: number;
   } | null>(null);
 
-  const fetchPlaces = async () => {
+  const fetchPlaces = async (wider: boolean = false) => {
     setLoading(true);
     setError(null);
+    setWidened(wider);
     try {
       const loc = await getCurrentLocation();
       if (!loc) {
@@ -55,10 +58,18 @@ export function PlacePickerModal({ visible, onClose, onPick }: Props) {
         return;
       }
       setOrigin({ latitude: loc.latitude, longitude: loc.longitude });
-      const found = await findNearbyPlaces(loc.latitude, loc.longitude);
+      const found = await findNearbyPlaces(
+        loc.latitude,
+        loc.longitude,
+        wider ? NEARBY_PLACES_WIDE_RADIUS_M : undefined
+      );
       setPlaces(found);
       if (found.length === 0) {
-        setError("No places found nearby — try a wider search or pick somewhere known");
+        setError(
+          wider
+            ? "Still no places found at 1.5km. Verify the Maps API key is enabled for Places, or pick somewhere by name later."
+            : "No places found nearby."
+        );
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load places");
@@ -70,12 +81,13 @@ export function PlacePickerModal({ visible, onClose, onPick }: Props) {
 
   useEffect(() => {
     if (visible) {
-      fetchPlaces();
+      fetchPlaces(false);
     } else {
       // Reset state when closed so reopening starts fresh
       setPlaces([]);
       setError(null);
       setOrigin(null);
+      setWidened(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
@@ -108,11 +120,26 @@ export function PlacePickerModal({ visible, onClose, onPick }: Props) {
           ) : error ? (
             <View style={styles.centerState}>
               <Text style={styles.errorLabel}>{error}</Text>
-              <Pressable onPress={fetchPlaces} style={styles.retryBtn}>
-                <Text style={{ color: C.accent, fontSize: 12, fontWeight: "600" }}>
-                  Try again
-                </Text>
-              </Pressable>
+              <View style={{ flexDirection: "row", gap: 8 }}>
+                <Pressable
+                  onPress={() => fetchPlaces(false)}
+                  style={styles.retryBtn}
+                >
+                  <Text style={{ color: C.accent, fontSize: 12, fontWeight: "600" }}>
+                    Try again
+                  </Text>
+                </Pressable>
+                {!widened ? (
+                  <Pressable
+                    onPress={() => fetchPlaces(true)}
+                    style={styles.retryBtn}
+                  >
+                    <Text style={{ color: C.accent, fontSize: 12, fontWeight: "600" }}>
+                      🔍 Widen to 1.5km
+                    </Text>
+                  </Pressable>
+                ) : null}
+              </View>
             </View>
           ) : (
             <ScrollView style={{ maxHeight: 360 }}>
@@ -146,11 +173,24 @@ export function PlacePickerModal({ visible, onClose, onPick }: Props) {
           )}
 
           {!loading && !error && places.length > 0 ? (
-            <Pressable onPress={fetchPlaces} style={styles.refreshBtn}>
-              <Text style={{ color: C.muted, fontSize: 11 }}>
-                ↻ Refresh nearby
-              </Text>
-            </Pressable>
+            <View style={{ flexDirection: "row", gap: 14, justifyContent: "center" }}>
+              <Pressable onPress={() => fetchPlaces(false)} style={styles.refreshBtn}>
+                <Text style={{ color: C.muted, fontSize: 11 }}>
+                  ↻ Refresh
+                </Text>
+              </Pressable>
+              {!widened ? (
+                <Pressable onPress={() => fetchPlaces(true)} style={styles.refreshBtn}>
+                  <Text style={{ color: C.muted, fontSize: 11 }}>
+                    🔍 Widen to 1.5km
+                  </Text>
+                </Pressable>
+              ) : (
+                <Text style={[styles.refreshBtn, { color: C.muted, fontSize: 11, paddingVertical: 10 }]}>
+                  (1.5km radius)
+                </Text>
+              )}
+            </View>
           ) : null}
         </View>
       </SafeAreaView>

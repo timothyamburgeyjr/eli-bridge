@@ -130,7 +130,11 @@ export interface NearbyPlace {
   distanceM: number;
 }
 
-const NEARBY_DEFAULT_RADIUS_M = 200;
+// 350m default — comfortably covers a Kroger/Walmart from anywhere in the
+// parking lot (typical big-box footprint is ~150m wide). Smaller default
+// would miss the building entirely if GPS snapped to the far edge.
+const NEARBY_DEFAULT_RADIUS_M = 350;
+const NEARBY_WIDE_RADIUS_M = 1500;
 const NEARBY_MAX_RESULTS = 10;
 
 /**
@@ -210,6 +214,9 @@ function haversineMeters(
     Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2;
   return Math.round(2 * R * Math.asin(Math.sqrt(x)));
 }
+
+/** Re-export for callers that need the wider-radius constant. */
+export const NEARBY_PLACES_WIDE_RADIUS_M = NEARBY_WIDE_RADIUS_M;
 
 /** Pretty-print a Place type for display ("amusement_park" → "amusement park"). */
 export function prettyPlaceType(t?: string): string {
