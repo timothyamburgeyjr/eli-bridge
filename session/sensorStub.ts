@@ -213,11 +213,16 @@ export function snapshotToText(s: SensorSnapshot): string {
     parts.push(`Next event: ${s.calendar.nextEvent}${s.calendar.timeUntil ? ` (${s.calendar.timeUntil})` : ""}`);
   }
   if (s.speakerLabels?.length) {
+    // Format: "Hank (Tim's closest friend) — voice detected (conf 0.91)".
+    // Earlier this read `said "(spoken audio)" (conf 0.91)` which made it
+    // look like Hank literally said the placeholder string. The actual
+    // words come from the audio attachment — Gemini transcribes from
+    // there, the label just identifies WHO the voice belongs to.
     parts.push(
       `Speakers nearby: ${s.speakerLabels
         .map((l) => {
           const who = l.notes ? `${l.speaker} (${l.notes})` : l.speaker;
-          return `${who} said "${l.quote}" (conf ${l.confidence.toFixed(2)})`;
+          return `${who} — voice detected (conf ${l.confidence.toFixed(2)})`;
         })
         .join(" | ")}`
     );
