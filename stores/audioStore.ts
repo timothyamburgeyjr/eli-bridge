@@ -114,20 +114,29 @@ export const useAudio = create<AudioState>((set, get) => ({
 
     // If this message is currently playing, tapping again pauses it → mark played.
     if (existing?.status === "playing") {
+      console.log(`[audio] playEli STOP (already playing) msg=${messageId}`);
       get().stop();
       return;
     }
 
     // Always stop whatever else is playing first.
     if (state.currentMessageId && state.currentMessageId !== messageId) {
+      console.log(
+        `[audio] playEli stopping prior msg=${state.currentMessageId} to start msg=${messageId}`
+      );
       get().stop();
     }
 
     // Cache hit: play the existing file.
     if (existing && existing.path && (existing.status === "ready" || existing.status === "played")) {
+      console.log(
+        `[audio] playEli REPLAY (cache hit, status=${existing.status}) msg=${messageId}`
+      );
       startPlayback(messageId, existing.path, set, get);
       return;
     }
+
+    console.log(`[audio] playEli GENERATE msg=${messageId}`);
 
     // Cache miss: generate. Set currentMessageId here (not just when playback
     // starts) so consumers reading `cache[currentMessageId]` see a defined

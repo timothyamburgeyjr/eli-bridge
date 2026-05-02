@@ -106,6 +106,13 @@ export function DrivingOverlay() {
 
   // Force-speak every new Eli reply while Driving Mode is on. Watches the
   // latest Eli message id; when it changes, auto-triggers ElevenLabs playback.
+  //
+  // Freshness gate: only auto-play messages that are <60s old. Prevents the
+  // "audio replays out of nowhere" failure mode where some upstream state
+  // change (queue drain, cache update, store re-emit) walks the loop and
+  // matches an OLD Eli message with a stale or cleared lastAutoSpokenRef.
+  // The ref alone isn't enough — if it's ever wrong, an old message replays.
+  // The freshness gate is a bound on how wrong things can get.
   const lastAutoSpokenRef = useRef<string | null>(null);
   const playEli = useAudio((s) => s.playEli);
   useEffect(() => {
@@ -116,6 +123,20 @@ export function DrivingOverlay() {
       if (lastAutoSpokenRef.current === m.id) return;
       const raw = m.raw ?? (m.emote ? `_(*${m.emote}*)_ ${m.dialog}` : m.dialog);
       if (!raw) return;
+      const msgTs = extractTimestampFromId(m.id);
+      const ageMs = msgTs !== null ? Date.now() - msgTs : null;
+      if (ageMs !== null && ageMs > 60_000) {
+        // Stale — claim it without auto-playing, so future ticks don't
+        // keep examining the same old message.
+        console.log(
+          `[drive] auto-speak SKIP (stale) msg=${m.id} age=${ageMs}ms`
+        );
+        lastAutoSpokenRef.current = m.id;
+        return;
+      }
+      console.log(
+        `[drive] auto-speak FIRE msg=${m.id} age=${ageMs ?? "?"}ms`
+      );
       lastAutoSpokenRef.current = m.id;
       playEli(m.id, raw);
       return;
@@ -302,6 +323,14 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, "0");
   const s = (seconds % 60).toString().padStart(2, "0");
   return `${m}:${s}`;
+}
+
+/** Pulls the trailing Date.now() out of message IDs like "eli-1714671234567". */
+function extractTimestampFromId(id: string): number | null {
+  const m = id.match(/-(\d{13})$/);
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  return Number.isFinite(n) ? n : null;
 }
 
 const styles = StyleSheet.create({
