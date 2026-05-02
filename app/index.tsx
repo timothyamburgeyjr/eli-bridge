@@ -21,6 +21,9 @@ import { InputBar } from "@/components/chat/InputBar";
 import { StagingTray } from "@/components/chat/StagingTray";
 import { MediaPicker } from "@/components/capture/MediaPicker";
 import { CaptureModal, CaptureMode } from "@/components/capture/CaptureModal";
+import { PlacePickerModal } from "@/components/places/PlacePickerModal";
+import { BundleBriefSheet } from "@/components/places/BundleBriefSheet";
+import { bestPlaceType, prettyPlaceType } from "@/services/places";
 import { DiagnosticsPanel } from "@/components/diagnostics/DiagnosticsPanel";
 import { PeopleRoster } from "@/components/people/PeopleRoster";
 import { EliAvatar } from "@/components/common/EliAvatar";
@@ -34,11 +37,21 @@ export default function Main() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [captureMode, setCaptureMode] = useState<CaptureMode | null>(null);
+  const [placePickerOpen, setPlacePickerOpen] = useState(false);
+  const [bundleSheetOpen, setBundleSheetOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
   const [source, setSource] = useState<ChatSource>("live");
 
   const liveMessages = useChat((s) => s.messages);
+  const savedAwaitingBriefCount = useChat(
+    (s) =>
+      s.messages.filter(
+        (m) =>
+          m.from === "savedplace" &&
+          (m as unknown as { placeStatus?: string }).placeStatus === "saved"
+      ).length
+  );
   const clearChat = useChat((s) => s.clear);
   const status = useChat((s) => s.status);
   const errorMessage = useChat((s) => s.errorMessage);
@@ -253,6 +266,23 @@ export default function Main() {
         </View>
       )}
 
+      {savedAwaitingBriefCount > 0 && source === "live" && (
+        <Pressable
+          onPress={() => setBundleSheetOpen(true)}
+          disabled={status === "assembling" || status === "sending"}
+          style={({ pressed }) => [
+            styles.bundlePill,
+            pressed && { opacity: 0.6 },
+            (status === "assembling" || status === "sending") && { opacity: 0.4 },
+          ]}
+        >
+          <Text style={styles.bundlePillText}>
+            📋 Brief Eli on {savedAwaitingBriefCount} saved{" "}
+            {savedAwaitingBriefCount === 1 ? "place" : "places"} →
+          </Text>
+        </Pressable>
+      )}
+
       {liveContext.length > 0 && source === "live" && (
         <Pressable
           onPress={() => useChat.getState().sendMessage("", { ambientPing: true })}
@@ -306,11 +336,40 @@ export default function Main() {
           setPickerOpen(false);
           setCaptureMode(m);
         }}
+        onPickPlace={() => {
+          setPickerOpen(false);
+          setPlacePickerOpen(true);
+        }}
       />
       <CaptureModal
         visible={captureMode !== null}
         initialMode={captureMode ?? "photo"}
         onClose={() => setCaptureMode(null)}
+      />
+      <PlacePickerModal
+        visible={placePickerOpen}
+        onClose={() => setPlacePickerOpen(false)}
+        onPick={(place) => {
+          useChat.getState().addSavedPlace({
+            placeId: place.placeId,
+            name: place.name,
+            category: prettyPlaceType(bestPlaceType(place.types)) || undefined,
+            address: place.vicinity,
+            distanceM: place.distanceM,
+            rating: place.rating,
+            openNow: place.openNow,
+          });
+          setPlacePickerOpen(false);
+        }}
+      />
+      <BundleBriefSheet
+        visible={bundleSheetOpen}
+        placeCount={savedAwaitingBriefCount}
+        onClose={() => setBundleSheetOpen(false)}
+        onConfirm={(note) => {
+          setBundleSheetOpen(false);
+          useChat.getState().briefAllSavedPlaces(note || undefined);
+        }}
       />
 
       {sceneStatus === "analyzing" && (
@@ -448,6 +507,22 @@ const styles = StyleSheet.create({
   },
   contextLabel: { color: C.muted, fontSize: 9, textTransform: "uppercase", letterSpacing: 1 },
   contextChips: { color: C.textDim, fontSize: 11, marginTop: 2 },
+  bundlePill: {
+    marginHorizontal: 14,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: C.amber + "16",
+    borderWidth: 1,
+    borderColor: C.amber + "55",
+    alignItems: "center",
+  },
+  bundlePillText: {
+    color: C.amber,
+    fontSize: 12,
+    fontWeight: "700",
+  },
   recordingBanner: {
     flexDirection: "row",
     alignItems: "center",
