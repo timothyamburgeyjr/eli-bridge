@@ -62,7 +62,9 @@ export type MessageFrom =
   | "venuemode"
   | "ride"
   | "sessionjournal"
-  | "audiosnap";
+  | "audiosnap"
+  | "savedplace"
+  | "briefbundle";
 
 export interface BaseMessage {
   id: string;

@@ -14,6 +14,8 @@ import { VenueModeCard } from "@/components/cards/VenueModeCard";
 import { RideCard } from "@/components/cards/RideCard";
 import { SessionJournalCard } from "@/components/cards/SessionJournalCard";
 import { SceneCard } from "@/components/cards/SceneCard";
+import { SavedPlaceCard } from "@/components/cards/SavedPlaceCard";
+import { BriefBundleCard } from "@/components/cards/BriefBundleCard";
 
 export type AnyMsg = Record<string, any> & {
   id: string;
@@ -55,6 +57,10 @@ export function renderCard(msg: AnyMsg): React.ReactElement | null {
       return <SessionJournalCard msg={msg as any} />;
     case "scene":
       return <SceneCard msg={msg as any} />;
+    case "savedplace":
+      return <SavedPlaceCard msg={msg as any} />;
+    case "briefbundle":
+      return <BriefBundleCard msg={msg as any} />;
     default:
       return null;
   }
