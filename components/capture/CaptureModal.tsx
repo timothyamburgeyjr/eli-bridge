@@ -51,6 +51,7 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
   const audioTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [flashing, setFlashing] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [facing, setFacing] = useState<"back" | "front">("back");
 
   const recorder = useAudioRecorder(VOICE_RECORDING_PRESET);
   const recorderRef = useRef(recorder);
@@ -68,6 +69,7 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
       setAudioRecording(false);
       setAudioElapsed(0);
       setBusy(false);
+      setFacing("back"); // always start on rear-cam; flip is per-session
     }
   }, [visible, initialMode]);
 
@@ -247,13 +249,26 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
             // future SDK default-change can't quietly flip us into the
             // video-capable surface (which holds an audio session and is
             // more sensitive to mid-stream config changes).
-            <CameraView
-              key="capture-camera"
-              ref={cameraRef}
-              style={styles.camera}
-              facing="back"
-              mode="picture"
-            />
+            //
+            // facing flips between back and front via the overlay button.
+            // CameraView handles the swap natively without a remount.
+            <View style={styles.cameraWrap}>
+              <CameraView
+                key="capture-camera"
+                ref={cameraRef}
+                style={styles.camera}
+                facing={facing}
+                mode="picture"
+              />
+              <Pressable
+                onPress={() => setFacing((f) => (f === "back" ? "front" : "back"))}
+                disabled={busy}
+                style={[styles.flipBtn, busy && { opacity: 0.4 }]}
+                hitSlop={8}
+              >
+                <Text style={styles.flipBtnText}>🔄</Text>
+              </Pressable>
+            </View>
           ) : (
             <View style={styles.permView}>
               <Text style={styles.permText}>
@@ -404,6 +419,21 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
   viewport: { flex: 1, alignItems: "center", justifyContent: "center" },
   camera: { flex: 1, width: "100%" },
+  cameraWrap: { flex: 1, width: "100%" },
+  flipBtn: {
+    position: "absolute",
+    top: 14,
+    right: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  flipBtnText: { fontSize: 22 },
   flash: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#fff",
