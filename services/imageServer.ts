@@ -92,3 +92,49 @@ export async function uploadImage(localPath: string): Promise<ImageUploadResult>
 
   return { url: absolute };
 }
+
+/**
+ * Best-effort delete of a previously-uploaded image from the self-hosted
+ * server. Used after the session-end vault archive succeeds — we don't need
+ * both copies.
+ *
+ * Pattern: DELETE on the same /upload/{sessionId}/{filename} path that the
+ * upload used (server's auth-protected write surface). If the server doesn't
+ * implement DELETE there yet, the request will 404/405 — logged as a warning
+ * but not thrown, so a missing server route doesn't take down the journal
+ * save flow.
+ *
+ * Accepts the absolute public URL (what we passed to Kindroid) and rewrites
+ * /images/ → /upload/ to hit the auth-protected route.
+ */
+export async function deleteImage(absoluteUrl: string): Promise<boolean> {
+  const uploadKey = getEnv("IMAGE_UPLOAD_KEY");
+  if (!uploadKey) return false;
+
+  // The public URL is BASE/images/{sessionId}/{filename}; the auth-protected
+  // delete is BASE/upload/{sessionId}/{filename}.
+  const deleteUrl = absoluteUrl.replace("/images/", "/upload/");
+  if (deleteUrl === absoluteUrl) {
+    console.warn(
+      `[imageServer] deleteImage: URL doesn't contain /images/ — nothing to rewrite, skipping: ${absoluteUrl}`
+    );
+    return false;
+  }
+
+  try {
+    const res = await fetch(deleteUrl, {
+      method: "DELETE",
+      headers: { "X-Upload-Key": uploadKey },
+    });
+    if (!res.ok) {
+      console.warn(
+        `[imageServer] deleteImage ${deleteUrl} → HTTP ${res.status} (server may not support DELETE)`
+      );
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn(`[imageServer] deleteImage ${deleteUrl} threw:`, err);
+    return false;
+  }
+}

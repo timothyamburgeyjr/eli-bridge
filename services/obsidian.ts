@@ -63,6 +63,31 @@ export async function writeNote(path: string, content: string): Promise<void> {
 }
 
 /**
+ * Write binary content (images, audio) to a vault file. Used by the session-
+ * end attachment archiver. RN's fetch accepts Uint8Array as a body even
+ * though the DOM TS types don't include it — the cast keeps tsc quiet.
+ */
+export async function writeBinary(
+  path: string,
+  data: Uint8Array,
+  mimeType: string
+): Promise<void> {
+  const encoded = path
+    .split("/")
+    .map((seg) => encodeURIComponent(seg))
+    .join("/");
+  const url = `${vaultBase()}/vault/${encoded}`;
+  const res = await fetch(url, {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": mimeType },
+    body: data as unknown as BodyInit,
+  });
+  if (!res.ok) {
+    throw new Error(`obsidian.writeBinary ${path} → HTTP ${res.status}`);
+  }
+}
+
+/**
  * List the immediate children of a vault folder. Returns names as the REST
  * API reports them — subfolder entries end with "/".
  */
