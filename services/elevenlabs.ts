@@ -65,10 +65,16 @@ export async function synthesizeToFile(
       signal: ctl.signal,
     });
   } catch (err) {
-    if (
-      err instanceof DOMException && err.name === "AbortError" ||
-      (err instanceof Error && err.name === "AbortError")
-    ) {
+    // Hermes (the React Native JS runtime) doesn't expose DOMException as a
+    // global — referencing it throws "Property 'DOMException' doesn't exist".
+    // AbortController on RN throws a regular Error with name === "AbortError",
+    // so plain duck-typing is the right shape.
+    const aborted =
+      (err instanceof Error && err.name === "AbortError") ||
+      (typeof err === "object" &&
+        err !== null &&
+        (err as { name?: string }).name === "AbortError");
+    if (aborted) {
       throw new Error(
         `ElevenLabs synth timed out after ${SYNTHESIS_TIMEOUT_MS / 1000}s`
       );
