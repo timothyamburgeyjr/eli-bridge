@@ -110,3 +110,121 @@ function shortState(fullName: string): string {
   };
   return map[fullName] ?? fullName;
 }
+
+// ── Nearby Search ──────────────────────────────────────────────────
+
+export interface NearbyPlace {
+  /** Google Place ID — stable identifier across calls. */
+  placeId: string;
+  /** Display name from Places (e.g., "Dark Star Comics", "Fiona's Habitat"). */
+  name: string;
+  /** Comma-joined Places API types (e.g., "book_store, store, point_of_interest"). */
+  types: string[];
+  /** Short formatted address ("108 Dayton St, Yellow Springs"). */
+  vicinity?: string;
+  /** Star rating 1.0–5.0 if Places has one. */
+  rating?: number;
+  /** True if Places knows the place is open right now. Undefined when unknown. */
+  openNow?: boolean;
+  /** Distance in meters from the search origin. Computed client-side. */
+  distanceM: number;
+}
+
+const NEARBY_DEFAULT_RADIUS_M = 200;
+const NEARBY_MAX_RESULTS = 10;
+
+/**
+ * List the closest POIs to a coordinate, suitable for a "📍 Save place"
+ * picker. Uses Google Places "Nearby Search" (legacy) — returns proper POI
+ * names (not address-derived strings like the Geocoding API does).
+ *
+ * Sorted client-side by haversine distance from the origin. Capped at
+ * NEARBY_MAX_RESULTS to keep the picker tight. Returns [] on API failure
+ * so the caller can fall back to a "no places nearby" empty state.
+ */
+export async function findNearbyPlaces(
+  lat: number,
+  lon: number,
+  radiusM: number = NEARBY_DEFAULT_RADIUS_M
+): Promise<NearbyPlace[]> {
+  const key = getEnv("GOOGLE_MAPS_API_KEY");
+  if (!key) return [];
+
+  try {
+    const url =
+      `https://maps.googleapis.com/maps/api/place/nearbysearch/json?` +
+      `location=${lat},${lon}&radius=${radiusM}&key=${key}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
+    const json = (await res.json()) as {
+      status: string;
+      results?: {
+        place_id: string;
+        name: string;
+        types: string[];
+        vicinity?: string;
+        rating?: number;
+        opening_hours?: { open_now?: boolean };
+        geometry?: { location: { lat: number; lng: number } };
+      }[];
+    };
+    if (json.status !== "OK" && json.status !== "ZERO_RESULTS") return [];
+    if (!json.results?.length) return [];
+
+    const enriched: NearbyPlace[] = json.results
+      .filter((r) => r.geometry?.location && r.name)
+      .map((r) => ({
+        placeId: r.place_id,
+        name: r.name,
+        types: r.types ?? [],
+        vicinity: r.vicinity,
+        rating: r.rating,
+        openNow: r.opening_hours?.open_now,
+        distanceM: haversineMeters(
+          { lat, lon },
+          { lat: r.geometry!.location.lat, lon: r.geometry!.location.lng }
+        ),
+      }))
+      .sort((a, b) => a.distanceM - b.distanceM)
+      .slice(0, NEARBY_MAX_RESULTS);
+
+    return enriched;
+  } catch {
+    return [];
+  }
+}
+
+/** Haversine distance in meters. Inlined to avoid importing from location.ts. */
+function haversineMeters(
+  a: { lat: number; lon: number },
+  b: { lat: number; lon: number }
+): number {
+  const R = 6_371_000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const la1 = toRad(a.lat);
+  const la2 = toRad(b.lat);
+  const x =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(la1) * Math.cos(la2) * Math.sin(dLon / 2) ** 2;
+  return Math.round(2 * R * Math.asin(Math.sqrt(x)));
+}
+
+/** Pretty-print a Place type for display ("amusement_park" → "amusement park"). */
+export function prettyPlaceType(t?: string): string {
+  if (!t) return "";
+  return t.replace(/_/g, " ");
+}
+
+/**
+ * Pick the most descriptive type for a place. Skips generic types like
+ * "establishment" and "point_of_interest" in favor of specific ones like
+ * "book_store" or "amusement_park".
+ */
+export function bestPlaceType(types: string[]): string | undefined {
+  if (!types.length) return undefined;
+  const generic = new Set(["establishment", "point_of_interest", "premise"]);
+  const specific = types.find((t) => !generic.has(t));
+  return specific ?? types[0];
+}

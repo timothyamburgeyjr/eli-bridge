@@ -16,6 +16,16 @@ export interface AssembleOptions {
    * for this call only, then caller is responsible for clearing.
    */
   sceneMemo?: string;
+  /**
+   * One-shot location-anchored briefing context — used by Save Place "Brief Eli
+   * now" and the bundled-brief flow. Distinct from sceneMemo: scene comes from
+   * Gemini-Pro photo analysis (rich texture), briefing is a structured place
+   * list ("Tim is logging arrival at Dark Star Comics..."). Both can coexist.
+   *
+   * Includes a no-fabrication directive — Gemini should ground the emote in
+   * the place name + sensor data, not invent interior details.
+   */
+  briefingContext?: string;
 }
 
 export interface AssembleResult extends ParsedMessage {
@@ -33,9 +43,24 @@ export class EmoteAssembler {
   async assemble(opts: AssembleOptions): Promise<AssembleResult> {
     const filtered = this.ledger.filter(opts.sensors);
     const baseSnapshot = snapshotToText(filtered);
-    const snapshotText = opts.sceneMemo
-      ? `[TIM-CAPTURED SCENE — use this for Tier 1 grounding; take precedence over sensor defaults]\n${opts.sceneMemo}\n\n${baseSnapshot}`
-      : baseSnapshot;
+    let snapshotText = baseSnapshot;
+    if (opts.sceneMemo) {
+      snapshotText = `[TIM-CAPTURED SCENE — use this for Tier 1 grounding; take precedence over sensor defaults]\n${opts.sceneMemo}\n\n${snapshotText}`;
+    }
+    if (opts.briefingContext) {
+      // Briefing context is the "log this moment" trigger — the emote should
+      // be a first-person Tim arrival/recap anchored on the named place(s).
+      // Explicit no-fabrication directive so Flash doesn't invent details
+      // beyond what the place name + sensor data + chat history justify.
+      snapshotText =
+        `[BRIEFING — Tim has tapped a "Brief Eli" action. Build a first-person ` +
+        `arrival/recap emote anchored on the place(s) below. Do NOT fabricate ` +
+        `interior details, smells, people, or ambience that aren't visible in ` +
+        `attached photos or supported by sensor data — name + time + weather + ` +
+        `activity is what's real, plus any context Eli already has from chat ` +
+        `history. The emote can be sparse; that's correct for a quick waypoint.]\n` +
+        `${opts.briefingContext}\n\n${snapshotText}`;
+    }
 
     let parsed = await assembleEmote({
       sensorSnapshot: snapshotText,
