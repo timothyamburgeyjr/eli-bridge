@@ -258,20 +258,7 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
               style={styles.camera}
               facing={facing}
               mode="picture"
-            >
-              {/* Flip button must render as a CHILD of CameraView, not a
-                  sibling. On Android, the native camera surface occludes
-                  React siblings positioned over it — children render
-                  inside the camera's view tree and stay visible. */}
-              <Pressable
-                onPress={() => setFacing((f) => (f === "back" ? "front" : "back"))}
-                disabled={busy}
-                style={[styles.flipBtn, busy && { opacity: 0.4 }]}
-                hitSlop={8}
-              >
-                <Text style={styles.flipBtnText}>🔄</Text>
-              </Pressable>
-            </CameraView>
+            />
           ) : (
             <View style={styles.permView}>
               <Text style={styles.permText}>
@@ -394,7 +381,18 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
             </Pressable>
           )}
 
-          <View style={styles.smallBtn} />
+          {needsCamera && cameraPerm?.granted ? (
+            <Pressable
+              onPress={() => setFacing((f) => (f === "back" ? "front" : "back"))}
+              disabled={busy}
+              style={[styles.smallBtn, busy && { opacity: 0.4 }]}
+              hitSlop={8}
+            >
+              <Text style={styles.flipBtnText}>🔄</Text>
+            </Pressable>
+          ) : (
+            <View style={styles.smallBtn} />
+          )}
         </View>
       </KeyboardAvoidingView>
     </Modal>
@@ -422,20 +420,6 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
   viewport: { flex: 1, alignItems: "center", justifyContent: "center" },
   camera: { flex: 1, width: "100%" },
-  cameraWrap: { flex: 1, width: "100%" },
-  flipBtn: {
-    position: "absolute",
-    top: 14,
-    right: 14,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0,0,0,0.5)",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.2)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   flipBtnText: { fontSize: 22 },
   flash: {
     ...StyleSheet.absoluteFillObject,
