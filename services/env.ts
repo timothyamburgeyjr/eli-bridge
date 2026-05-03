@@ -19,7 +19,8 @@ type EnvKey =
   | "FITBIT_CLIENT_SECRET"
   | "FITBIT_USER_ID"
   | "PLEX_URL"
-  | "PLEX_TOKEN";
+  | "PLEX_TOKEN"
+  | "TAVILY_API_KEY";
 
 const PLACEHOLDER_PATTERNS = [/^your-.*-here$/, /^FILL_ME/i, /^kn_your-/];
 
@@ -44,6 +45,7 @@ function rawValue(key: EnvKey): string | undefined {
     case "FITBIT_USER_ID":       return process.env.EXPO_PUBLIC_FITBIT_USER_ID;
     case "PLEX_URL":             return process.env.EXPO_PUBLIC_PLEX_URL;
     case "PLEX_TOKEN":           return process.env.EXPO_PUBLIC_PLEX_TOKEN;
+    case "TAVILY_API_KEY":       return process.env.EXPO_PUBLIC_TAVILY_API_KEY;
   }
 }
 

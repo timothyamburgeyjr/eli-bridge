@@ -54,6 +54,13 @@ export interface QueuedSend {
   lastError?: string;
 }
 
+export interface PendingLookup {
+  /** The query Tim typed (for display + briefing context). */
+  query: string;
+  title: string;
+  content: string;
+}
+
 interface ChatState {
   messages: ChatItem[];
   status: SendStatus;
@@ -65,6 +72,13 @@ interface ChatState {
    * regardless of whether a message is being sent.
    */
   liveContext: string[];
+  /**
+   * Web-lookup snippets Tim has explicitly attached for the next send (via
+   * the "🔍 Look this up" flow on a photo). Drained on send into the
+   * briefingContext so Gemini incorporates encyclopedic context into the
+   * next emote.
+   */
+  pendingLookups: PendingLookup[];
   /**
    * Timestamp (ms) of the most recent transition into "assembling". Used by
    * the watchdog (in drivingPoller) to detect a frozen send pipeline and
@@ -158,6 +172,13 @@ interface ChatState {
    * tick with the freshest derivation of Tim's current situation.
    */
   setLiveContext: (chips: string[]) => void;
+
+  /** Attach a Tavily lookup result to the next send. */
+  attachLookup: (lookup: PendingLookup) => void;
+  /** Remove a previously-attached lookup (e.g., user changed their mind). */
+  removeLookup: (index: number) => void;
+  /** Clear all pending lookups (called on send completion). */
+  clearLookups: () => void;
 
   /**
    * Force the send pipeline back to idle. Watchdog-only — exposed so the
@@ -342,6 +363,7 @@ export const useChat = create<ChatState>((set, get) => ({
   errorMessage: null,
   lastEmoteChars: null,
   liveContext: [],
+  pendingLookups: [],
   sendStartedAt: null,
   sensorOverride: null,
   pending: [],
@@ -354,6 +376,14 @@ export const useChat = create<ChatState>((set, get) => ({
   setSensorOverride: (sensors) => set({ sensorOverride: sensors }),
 
   setLiveContext: (chips) => set({ liveContext: chips }),
+
+  attachLookup: (lookup) =>
+    set((s) => ({ pendingLookups: [...s.pendingLookups, lookup] })),
+  removeLookup: (index) =>
+    set((s) => ({
+      pendingLookups: s.pendingLookups.filter((_, i) => i !== index),
+    })),
+  clearLookups: () => set({ pendingLookups: [] }),
 
   forceResetStuckSend: (reason) => {
     const s = get();
@@ -491,6 +521,7 @@ export const useChat = create<ChatState>((set, get) => ({
       liveContext: [],
       pending: [],
       pendingSceneMemo: null,
+      pendingLookups: [],
       offlineQueue: [],
       draining: false,
     });
@@ -514,7 +545,24 @@ export const useChat = create<ChatState>((set, get) => ({
     const state = get();
     const attachments = state.pending;
     const ambientPing = opts?.ambientPing === true;
-    const briefingContext = opts?.briefingContext;
+    // Combine explicit briefingContext (e.g. from Save Place "Brief now")
+    // with any pending lookup snippets Tim attached via the photo lookup
+    // flow. Lookups are appended after explicit context so the structured
+    // briefing reads first, encyclopedia second.
+    const lookups = state.pendingLookups;
+    const lookupContext =
+      lookups.length > 0
+        ? "[ATTACHED LOOKUPS — encyclopedic context Tim explicitly added; weave naturally, do not parrot verbatim]\n" +
+          lookups
+            .map(
+              (l, i) =>
+                `(${i + 1}) Query: "${l.query}"\nTitle: ${l.title}\n${l.content}`
+            )
+            .join("\n\n")
+        : "";
+    const briefingContext = [opts?.briefingContext, lookupContext]
+      .filter((s) => s && s.trim())
+      .join("\n\n") || undefined;
 
     // Must have either text, an attachment, or be an ambient ping. Ambient
     // pings are emote-only sends triggered from the live-context banner —
@@ -819,6 +867,7 @@ export const useChat = create<ChatState>((set, get) => ({
         lastEmoteChars: ambient.length,
         pending: [], // attachments consumed
         pendingSceneMemo: null, // scene memo consumed
+        pendingLookups: [], // lookup context consumed
       });
 
       // ── Step 2: Upload any images to the self-hosted image server for Kindroid's image_urls
