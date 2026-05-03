@@ -44,6 +44,7 @@ export default function Main() {
   const [source, setSource] = useState<ChatSource>("live");
 
   const liveMessages = useChat((s) => s.messages);
+  const pendingLookupCount = useChat((s) => s.pendingLookups.length);
   const savedAwaitingBriefCount = useChat(
     (s) =>
       s.messages.filter(
@@ -281,6 +282,17 @@ export default function Main() {
             {savedAwaitingBriefCount === 1 ? "place" : "places"} →
           </Text>
         </Pressable>
+      )}
+
+      {pendingLookupCount > 0 && source === "live" && (
+        <View style={styles.lookupPill}>
+          <Text style={styles.lookupPillText}>
+            📎 {pendingLookupCount} lookup{pendingLookupCount === 1 ? "" : "s"} attached to next send
+          </Text>
+          <Pressable onPress={() => useChat.getState().clearLookups()} hitSlop={8}>
+            <Text style={{ color: C.muted, fontSize: 14 }}>×</Text>
+          </Pressable>
+        </View>
       )}
 
       {liveContext.length > 0 && source === "live" && (
@@ -522,6 +534,25 @@ const styles = StyleSheet.create({
     color: C.amber,
     fontSize: 12,
     fontWeight: "700",
+  },
+  lookupPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginHorizontal: 14,
+    marginBottom: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: C.accent + "16",
+    borderWidth: 1,
+    borderColor: C.accent + "55",
+  },
+  lookupPillText: {
+    color: C.accent,
+    fontSize: 11,
+    fontWeight: "600",
+    flex: 1,
   },
   recordingBanner: {
     flexDirection: "row",

@@ -13,6 +13,7 @@ import { Pill } from "@/components/common/PillButton";
 import { EliAvatar } from "@/components/common/EliAvatar";
 import { FormattedBody } from "./FormattedBody";
 import { useAudio } from "@/stores/audioStore";
+import { PhotoLookupModal } from "./PhotoLookupModal";
 
 interface ContextPill {
   icon: string;
@@ -63,6 +64,7 @@ export function TimBubble({
   const dimmed = queued || failed;
   const images = (attachments ?? []).filter((a) => a.type === "image");
   const [previewUri, setPreviewUri] = useState<string | null>(null);
+  const [lookupUri, setLookupUri] = useState<string | null>(null);
   return (
     <View style={[styles.row, { justifyContent: "flex-end", opacity: isDrive ? 0.7 : 1, marginBottom: isDrive ? 14 : 20 }]}>
       <View style={{ maxWidth: "78%", alignItems: "flex-end", gap: 4 }}>
@@ -93,17 +95,26 @@ export function TimBubble({
           {images.length > 0 && (
             <View style={[styles.imageStack, body.trim().length > 0 && { marginTop: 8 }]}>
               {images.map((img, i) => (
-                <Pressable
-                  key={i}
-                  onPress={() => setPreviewUri(img.localPath)}
-                  style={styles.imageWrap}
-                >
-                  <Image
-                    source={{ uri: img.localPath }}
-                    style={styles.bubbleImage}
-                    resizeMode="cover"
-                  />
-                </Pressable>
+                <View key={i} style={styles.imageWrap}>
+                  <Pressable
+                    onPress={() => setPreviewUri(img.localPath)}
+                    onLongPress={() => setLookupUri(img.localPath)}
+                    delayLongPress={400}
+                  >
+                    <Image
+                      source={{ uri: img.localPath }}
+                      style={styles.bubbleImage}
+                      resizeMode="cover"
+                    />
+                  </Pressable>
+                  <Pressable
+                    onPress={() => setLookupUri(img.localPath)}
+                    style={styles.lookupOverlay}
+                    hitSlop={6}
+                  >
+                    <Text style={styles.lookupOverlayText}>🔍</Text>
+                  </Pressable>
+                </View>
               ))}
             </View>
           )}
@@ -144,6 +155,12 @@ export function TimBubble({
           ) : null}
         </Pressable>
       </Modal>
+
+      <PhotoLookupModal
+        visible={lookupUri !== null}
+        photoUri={lookupUri}
+        onClose={() => setLookupUri(null)}
+      />
     </View>
   );
 }
@@ -277,11 +294,26 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     overflow: "hidden",
     backgroundColor: "rgba(0,0,0,0.25)",
+    position: "relative",
   },
   bubbleImage: {
     width: "100%",
     aspectRatio: 4 / 3,
   },
+  lookupOverlay: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  lookupOverlayText: { fontSize: 14 },
   previewBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.95)",
