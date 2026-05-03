@@ -545,24 +545,23 @@ export const useChat = create<ChatState>((set, get) => ({
     const state = get();
     const attachments = state.pending;
     const ambientPing = opts?.ambientPing === true;
-    // Combine explicit briefingContext (e.g. from Save Place "Brief now")
-    // with any pending lookup snippets Tim attached via the photo lookup
-    // flow. Lookups are appended after explicit context so the structured
-    // briefing reads first, encyclopedia second.
+    const briefingContext = opts?.briefingContext;
+    // Lookup snippets ride a SEPARATE assembler channel from briefingContext.
+    // Earlier they were combined, but the briefing wrapper's "anchored on
+    // the place(s) below" + "do NOT fabricate" directive hijacked Gemini —
+    // it interpreted the snippets as suspect rather than as Tim's chosen
+    // ground-truth, and dropped them entirely. The assembler now wraps
+    // lookups with a USE-these-facts directive instead.
     const lookups = state.pendingLookups;
     const lookupContext =
       lookups.length > 0
-        ? "[ATTACHED LOOKUPS — encyclopedic context Tim explicitly added; weave naturally, do not parrot verbatim]\n" +
-          lookups
+        ? lookups
             .map(
               (l, i) =>
                 `(${i + 1}) Query: "${l.query}"\nTitle: ${l.title}\n${l.content}`
             )
             .join("\n\n")
-        : "";
-    const briefingContext = [opts?.briefingContext, lookupContext]
-      .filter((s) => s && s.trim())
-      .join("\n\n") || undefined;
+        : undefined;
 
     // Must have either text, an attachment, or be an ambient ping. Ambient
     // pings are emote-only sends triggered from the live-context banner —
@@ -796,6 +795,7 @@ export const useChat = create<ChatState>((set, get) => ({
         history,
         sceneMemo,
         briefingContext,
+        lookupContext,
       });
 
       // ── Step 1b: Reconstruct client-side so Tim's text is verbatim.

@@ -26,6 +26,14 @@ export interface AssembleOptions {
    * the place name + sensor data, not invent interior details.
    */
   briefingContext?: string;
+  /**
+   * Web-lookup snippets Tim attached via 🔍 Look this up. Distinct from
+   * briefingContext (Save Place arrival semantics) — lookup context is
+   * encyclopedic background knowledge that Gemini should weave in WHEN
+   * RELEVANT to Tim's message. Wrapped with its own directive so the
+   * "no fabrication" rule from briefing doesn't suppress its use.
+   */
+  lookupContext?: string;
 }
 
 export interface AssembleResult extends ParsedMessage {
@@ -60,6 +68,22 @@ export class EmoteAssembler {
         `activity is what's real, plus any context Eli already has from chat ` +
         `history. The emote can be sparse; that's correct for a quick waypoint.]\n` +
         `${opts.briefingContext}\n\n${snapshotText}`;
+    }
+    if (opts.lookupContext) {
+      // Lookup context is encyclopedic background Tim attached deliberately
+      // via 🔍 Look this up. UNLIKE the briefing wrapper, this directive
+      // INVITES use of the snippets — Tim wants Gemini to reference what's
+      // in the lookup, not be cautious about it. The snippets are Tim's
+      // chosen ground-truth for this beat.
+      snapshotText =
+        `[ATTACHED LOOKUPS — Tim explicitly attached these encyclopedic ` +
+        `snippets for this message via the 🔍 Look this up flow. They are ` +
+        `his chosen ground-truth — treat them as factual context Tim now ` +
+        `knows. Weave the relevant facts into the emote naturally in his ` +
+        `voice ("makes sense, apparently they're related to giraffes"); do ` +
+        `NOT parrot verbatim and do NOT cite sources. If a snippet is ` +
+        `irrelevant to what Tim said this turn, drop it — but if it fits, ` +
+        `USE it.]\n${opts.lookupContext}\n\n${snapshotText}`;
     }
 
     let parsed = await assembleEmote({
