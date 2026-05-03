@@ -55,10 +55,10 @@ export interface QueuedSend {
 }
 
 export interface PendingLookup {
-  /** The query Tim typed (for display + briefing context). */
-  query: string;
-  title: string;
-  content: string;
+  /** Subject Gemini identified from the photo (e.g. "Okapi"). */
+  subject: string;
+  /** Encyclopedic context Gemini wrote about the subject. */
+  context: string;
 }
 
 interface ChatState {
@@ -558,7 +558,7 @@ export const useChat = create<ChatState>((set, get) => ({
         ? lookups
             .map(
               (l, i) =>
-                `(${i + 1}) Query: "${l.query}"\nTitle: ${l.title}\n${l.content}`
+                `(${i + 1}) Subject: ${l.subject}\n${l.context}`
             )
             .join("\n\n")
         : undefined;

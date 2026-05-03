@@ -198,6 +198,56 @@ export async function analyzeScene(opts: {
   return result.response.text().trim();
 }
 
+// ── analyzePhotoSubject (pro model) ───────────────────────────────
+
+export interface PhotoSubjectAnalysis {
+  /** The main subject Gemini identified (e.g. "Okapi", "Beale's eyed turtle"). */
+  subject: string;
+  /** 3-4 sentence encyclopedic context Gemini wrote from its training. */
+  context: string;
+}
+
+/**
+ * Drives the "🔍 Look this up" flow. Tim taps a photo → we ask Gemini Pro
+ * to identify the main subject of the image AND emit encyclopedic context
+ * about that subject from its training. Cuts out the web-search step
+ * entirely — Pro's training is vastly more useful for "what is this
+ * animal" style questions than scraping web snippets.
+ *
+ * Returns { subject, context } parsed from a structured prompt response.
+ * Throws on parse failure or timeout.
+ */
+export async function analyzePhotoSubject(image: {
+  mimeType: string;
+  data: string;
+}): Promise<PhotoSubjectAnalysis> {
+  const prompt =
+    "You are looking at a photo Tim took. Identify the MAIN SUBJECT of " +
+    "the photo (the animal, plant, building, object, dish, etc. that Tim " +
+    "is most likely interested in — usually the central or most distinct " +
+    "element, not the background) and provide encyclopedic context about " +
+    "that subject from your training knowledge.\n\n" +
+    "Respond in EXACTLY this format, no preamble, no markdown:\n" +
+    "SUBJECT: <short name of the subject — e.g. \"Okapi\" or \"Beale's eyed turtle\" or \"1967 Mustang Fastback\">\n" +
+    "CONTEXT: <3-4 sentences of factual context about the subject. What " +
+    "is it, where does it live / where is it from, key distinguishing " +
+    "facts. Plain prose, no bullet points. Don't describe the photo " +
+    "itself — describe the subject.>";
+
+  const text = await analyzeScene({ prompt, images: [image] });
+  const subjectMatch = text.match(/^\s*SUBJECT:\s*(.+?)\s*$/im);
+  const contextMatch = text.match(/^\s*CONTEXT:\s*([\s\S]+?)\s*$/im);
+  if (!subjectMatch || !contextMatch) {
+    throw new Error(
+      `analyzePhotoSubject: couldn't parse Gemini response. Raw: ${text.slice(0, 200)}`
+    );
+  }
+  return {
+    subject: subjectMatch[1].trim(),
+    context: contextMatch[1].trim(),
+  };
+}
+
 // ── draftJournal (flash) ─────────────────────────────────────────
 
 export async function draftJournal(sessionSummary: string): Promise<string> {

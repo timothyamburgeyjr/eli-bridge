@@ -4,7 +4,6 @@ import {
   View,
   Text,
   Pressable,
-  TextInput,
   Image,
   ActivityIndicator,
   ScrollView,
@@ -14,7 +13,8 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { C } from "@/constants/theme";
-import { lookup, isLookupConfigured, LookupResult } from "@/services/tavily";
+import { analyzePhotoSubject, PhotoSubjectAnalysis } from "@/services/gemini";
+import { toInlineBlob } from "@/session/pendingAttachments";
 import { useChat } from "@/stores/chatStore";
 
 interface Props {
@@ -25,56 +25,61 @@ interface Props {
 }
 
 /**
- * "🔍 Look this up" modal. Tim taps a photo in his bubble → this opens.
- * He types a query (e.g. "okapi"), hits Search → Tavily returns 3 snippets.
- * Tap "📎 Attach" on any result to add it to chatStore.pendingLookups.
- * Pending lookups inject into the next send's briefingContext.
+ * "🔍 Look this up" modal. Tim taps the 🔍 overlay on a photo → this opens
+ * and immediately asks Gemini Pro to identify the subject of the photo and
+ * emit encyclopedic context about it from training (much richer than web
+ * search snippets for "what is this animal" style questions).
+ *
+ * No typing required. Tim sees the result and either Attaches it (the
+ * context flows into the next send's lookupContext, weaved into the emote)
+ * or Skips (just closes).
  */
 export function PhotoLookupModal({ visible, photoUri, onClose }: Props) {
-  const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [results, setResults] = useState<LookupResult[]>([]);
+  const [result, setResult] = useState<PhotoSubjectAnalysis | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [attachedIndices, setAttachedIndices] = useState<Set<number>>(new Set());
+  const [attached, setAttached] = useState(false);
   const attachLookup = useChat((s) => s.attachLookup);
   const pendingCount = useChat((s) => s.pendingLookups.length);
 
-  useEffect(() => {
-    if (visible) {
-      setQuery("");
-      setResults([]);
-      setError(null);
-      setAttachedIndices(new Set());
-    }
-  }, [visible]);
-
-  const handleSearch = async () => {
-    const q = query.trim();
-    if (!q) return;
-    if (!isLookupConfigured()) {
-      setError("Tavily API key not configured. Set EXPO_PUBLIC_TAVILY_API_KEY.");
-      return;
-    }
+  const runAnalysis = async (uri: string) => {
     setLoading(true);
     setError(null);
-    setAttachedIndices(new Set());
+    setResult(null);
+    setAttached(false);
     try {
-      const res = await lookup(q, 3);
-      setResults(res);
-      if (res.length === 0) {
-        setError("No results.");
-      }
+      const blob = await toInlineBlob({
+        id: "lookup",
+        kind: "image",
+        localPath: uri,
+        mimeType: guessMimeType(uri),
+      });
+      const analysis = await analyzePhotoSubject({
+        mimeType: blob.mimeType,
+        data: blob.data,
+      });
+      setResult(analysis);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Search failed.");
-      setResults([]);
+      setError(err instanceof Error ? err.message : "Subject analysis failed.");
     } finally {
       setLoading(false);
     }
   };
 
-  const handleAttach = (i: number, r: LookupResult) => {
-    attachLookup({ query: query.trim(), title: r.title, content: r.content });
-    setAttachedIndices((s) => new Set(s).add(i));
+  useEffect(() => {
+    if (visible && photoUri) {
+      runAnalysis(photoUri);
+    } else if (!visible) {
+      setResult(null);
+      setError(null);
+      setAttached(false);
+    }
+  }, [visible, photoUri]);
+
+  const handleAttach = () => {
+    if (!result) return;
+    attachLookup({ subject: result.subject, context: result.context });
+    setAttached(true);
   };
 
   return (
@@ -98,80 +103,84 @@ export function PhotoLookupModal({ visible, photoUri, onClose }: Props) {
               </Pressable>
             </View>
             <Text style={styles.subtitle}>
-              Search the web — attach snippets to your next message so Eli has
-              the encyclopedic context.
-              {pendingCount > 0 ? `  · ${pendingCount} already attached` : ""}
+              Gemini identifies the subject and writes context from its
+              training. Attach it to ride along on your next message.
+              {pendingCount > 0
+                ? `  · ${pendingCount} already attached`
+                : ""}
             </Text>
 
-            <View style={styles.queryRow}>
+            <View style={styles.thumbRow}>
               {photoUri ? (
                 <Image source={{ uri: photoUri }} style={styles.thumb} />
               ) : null}
-              <TextInput
-                value={query}
-                onChangeText={setQuery}
-                placeholder="What do you want to look up?"
-                placeholderTextColor={C.muted}
-                style={styles.input}
-                autoFocus
-                onSubmitEditing={handleSearch}
-                returnKeyType="search"
-              />
-              <Pressable
-                onPress={handleSearch}
-                disabled={loading || !query.trim()}
-                style={[
-                  styles.searchBtn,
-                  (loading || !query.trim()) && { opacity: 0.4 },
-                ]}
-              >
+              <View style={{ flex: 1 }}>
                 {loading ? (
-                  <ActivityIndicator size="small" color={C.accent} />
-                ) : (
-                  <Text style={styles.searchBtnText}>Search</Text>
-                )}
-              </Pressable>
-            </View>
-
-            {error ? (
-              <Text style={styles.errorLabel}>{error}</Text>
-            ) : null}
-
-            <ScrollView style={{ maxHeight: 380 }}>
-              {results.map((r, i) => {
-                const attached = attachedIndices.has(i);
-                return (
-                  <View key={i} style={styles.resultRow}>
-                    <Text style={styles.resultTitle}>{r.title}</Text>
-                    <Text style={styles.resultSnippet} numberOfLines={5}>
-                      {r.content}
-                    </Text>
+                  <View style={styles.statusRow}>
+                    <ActivityIndicator size="small" color={C.accent} />
+                    <Text style={styles.statusText}>Analyzing photo…</Text>
+                  </View>
+                ) : error ? (
+                  <View>
+                    <Text style={styles.errorLabel}>{error}</Text>
                     <Pressable
-                      onPress={() => handleAttach(i, r)}
-                      disabled={attached}
-                      style={[
-                        styles.attachBtn,
-                        attached && styles.attachBtnDone,
-                      ]}
+                      onPress={() => photoUri && runAnalysis(photoUri)}
+                      style={styles.retryBtn}
                     >
-                      <Text
-                        style={[
-                          styles.attachBtnText,
-                          attached && { color: C.green },
-                        ]}
-                      >
-                        {attached ? "✓ Attached" : "📎 Attach to next message"}
+                      <Text style={{ color: C.accent, fontSize: 12, fontWeight: "600" }}>
+                        Try again
                       </Text>
                     </Pressable>
                   </View>
-                );
-              })}
-            </ScrollView>
+                ) : result ? (
+                  <Text style={styles.subjectLabel}>{result.subject}</Text>
+                ) : null}
+              </View>
+            </View>
+
+            {result ? (
+              <ScrollView style={{ maxHeight: 300 }}>
+                <Text style={styles.contextText}>{result.context}</Text>
+              </ScrollView>
+            ) : null}
+
+            {result ? (
+              <View style={styles.actionsRow}>
+                <Pressable onPress={onClose} style={[styles.actionBtn, styles.skipBtn]}>
+                  <Text style={styles.skipBtnText}>Skip</Text>
+                </Pressable>
+                <Pressable
+                  onPress={handleAttach}
+                  disabled={attached}
+                  style={[
+                    styles.actionBtn,
+                    styles.attachBtn,
+                    attached && styles.attachBtnDone,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.attachBtnText,
+                      attached && { color: C.green },
+                    ]}
+                  >
+                    {attached ? "✓ Attached to next send" : "📎 Attach to next send"}
+                  </Text>
+                </Pressable>
+              </View>
+            ) : null}
           </View>
         </SafeAreaView>
       </KeyboardAvoidingView>
     </Modal>
   );
+}
+
+function guessMimeType(uri: string): string {
+  const lower = uri.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".webp")) return "image/webp";
+  return "image/jpeg";
 }
 
 const styles = StyleSheet.create({
@@ -192,61 +201,57 @@ const styles = StyleSheet.create({
   },
   title: { color: C.text, fontSize: 16, fontWeight: "700" },
   subtitle: { color: C.muted, fontSize: 11, marginBottom: 12, lineHeight: 15 },
-  queryRow: {
+  thumbRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginBottom: 10,
+    gap: 12,
+    marginBottom: 12,
   },
   thumb: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: C.surface,
-  },
-  input: {
-    flex: 1,
-    backgroundColor: C.surface,
-    borderWidth: 1,
-    borderColor: C.border,
+    width: 64,
+    height: 64,
     borderRadius: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 9,
-    fontSize: 13,
-    color: C.text,
+    backgroundColor: C.surface,
   },
-  searchBtn: {
+  statusRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  statusText: { color: C.accent, fontSize: 13, fontWeight: "600" },
+  subjectLabel: { color: C.text, fontSize: 16, fontWeight: "700" },
+  errorLabel: { color: C.muted, fontSize: 12, marginBottom: 8 },
+  retryBtn: {
     paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 10,
-    backgroundColor: C.accent + "22",
-    borderWidth: 1,
-    borderColor: C.accent + "66",
-    alignItems: "center",
-    justifyContent: "center",
-    minWidth: 70,
-  },
-  searchBtnText: { color: C.accent, fontSize: 12, fontWeight: "700" },
-  errorLabel: { color: C.muted, fontSize: 12, marginBottom: 10, paddingHorizontal: 4 },
-  resultRow: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: C.border,
-  },
-  resultTitle: { color: C.text, fontSize: 13, fontWeight: "600", marginBottom: 4 },
-  resultSnippet: { color: C.textDim, fontSize: 11, lineHeight: 16, marginBottom: 8 },
-  attachBtn: {
     paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    backgroundColor: C.accent + "14",
+    borderRadius: 10,
+    backgroundColor: C.accent + "18",
     borderWidth: 1,
     borderColor: C.accent + "44",
     alignSelf: "flex-start",
+  },
+  contextText: {
+    color: C.textDim,
+    fontSize: 13,
+    lineHeight: 19,
+    marginBottom: 14,
+  },
+  actionsRow: { flexDirection: "row", gap: 10 },
+  actionBtn: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 10,
+    borderWidth: 1,
+    alignItems: "center",
+  },
+  skipBtn: {
+    backgroundColor: C.surface,
+    borderColor: C.border,
+  },
+  skipBtnText: { color: C.textDim, fontSize: 13, fontWeight: "600" },
+  attachBtn: {
+    backgroundColor: C.accent + "22",
+    borderColor: C.accent + "66",
   },
   attachBtnDone: {
     backgroundColor: C.green + "14",
     borderColor: C.green + "44",
   },
-  attachBtnText: { color: C.accent, fontSize: 11, fontWeight: "700" },
+  attachBtnText: { color: C.accent, fontSize: 13, fontWeight: "700" },
 });
