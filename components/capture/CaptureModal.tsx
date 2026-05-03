@@ -252,14 +252,17 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
             //
             // facing flips between back and front via the overlay button.
             // CameraView handles the swap natively without a remount.
-            <View style={styles.cameraWrap}>
-              <CameraView
-                key="capture-camera"
-                ref={cameraRef}
-                style={styles.camera}
-                facing={facing}
-                mode="picture"
-              />
+            <CameraView
+              key="capture-camera"
+              ref={cameraRef}
+              style={styles.camera}
+              facing={facing}
+              mode="picture"
+            >
+              {/* Flip button must render as a CHILD of CameraView, not a
+                  sibling. On Android, the native camera surface occludes
+                  React siblings positioned over it — children render
+                  inside the camera's view tree and stay visible. */}
               <Pressable
                 onPress={() => setFacing((f) => (f === "back" ? "front" : "back"))}
                 disabled={busy}
@@ -268,7 +271,7 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
               >
                 <Text style={styles.flipBtnText}>🔄</Text>
               </Pressable>
-            </View>
+            </CameraView>
           ) : (
             <View style={styles.permView}>
               <Text style={styles.permText}>
