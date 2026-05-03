@@ -1,5 +1,13 @@
-import React from "react";
-import { View, Text, Pressable, ActivityIndicator, StyleSheet } from "react-native";
+import React, { useState } from "react";
+import {
+  View,
+  Text,
+  Pressable,
+  ActivityIndicator,
+  StyleSheet,
+  Image,
+  Modal,
+} from "react-native";
 import { C } from "@/constants/theme";
 import { Pill } from "@/components/common/PillButton";
 import { EliAvatar } from "@/components/common/EliAvatar";
@@ -9,6 +17,13 @@ import { useAudio } from "@/stores/audioStore";
 interface ContextPill {
   icon: string;
   label: string;
+}
+
+interface TimAttachment {
+  type: "image" | "audio" | "video" | "file";
+  localPath: string;
+  mimeType: string;
+  duration?: number;
 }
 
 function composeRaw(emote: string | undefined, dialog: string): string {
@@ -28,11 +43,26 @@ interface TimProps {
   queued?: boolean;
   /** Send permanently failed after retries. */
   failed?: boolean;
+  /** Image/audio/video files attached to this message. Images render inline
+   *  in the bubble; other kinds are noted but not rendered (yet). */
+  attachments?: TimAttachment[];
 }
 
-export function TimBubble({ emote, dialog, raw, time, pills, isDrive, queued, failed }: TimProps) {
+export function TimBubble({
+  emote,
+  dialog,
+  raw,
+  time,
+  pills,
+  isDrive,
+  queued,
+  failed,
+  attachments,
+}: TimProps) {
   const body = raw ?? composeRaw(emote, dialog);
   const dimmed = queued || failed;
+  const images = (attachments ?? []).filter((a) => a.type === "image");
+  const [previewUri, setPreviewUri] = useState<string | null>(null);
   return (
     <View style={[styles.row, { justifyContent: "flex-end", opacity: isDrive ? 0.7 : 1, marginBottom: isDrive ? 14 : 20 }]}>
       <View style={{ maxWidth: "78%", alignItems: "flex-end", gap: 4 }}>
@@ -59,7 +89,24 @@ export function TimBubble({ emote, dialog, raw, time, pills, isDrive, queued, fa
             },
           ]}
         >
-          <FormattedBody text={body} />
+          {body.trim().length > 0 ? <FormattedBody text={body} /> : null}
+          {images.length > 0 && (
+            <View style={[styles.imageStack, body.trim().length > 0 && { marginTop: 8 }]}>
+              {images.map((img, i) => (
+                <Pressable
+                  key={i}
+                  onPress={() => setPreviewUri(img.localPath)}
+                  style={styles.imageWrap}
+                >
+                  <Image
+                    source={{ uri: img.localPath }}
+                    style={styles.bubbleImage}
+                    resizeMode="cover"
+                  />
+                </Pressable>
+              ))}
+            </View>
+          )}
           {pills && pills.length > 0 && (
             <View style={styles.pillRow}>
               {pills.map((p, i) => (
@@ -77,6 +124,26 @@ export function TimBubble({ emote, dialog, raw, time, pills, isDrive, queued, fa
           <Text style={styles.timestamp}>{time}</Text>
         </View>
       </View>
+
+      <Modal
+        visible={previewUri !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewUri(null)}
+      >
+        <Pressable
+          style={styles.previewBackdrop}
+          onPress={() => setPreviewUri(null)}
+        >
+          {previewUri ? (
+            <Image
+              source={{ uri: previewUri }}
+              style={styles.previewImage}
+              resizeMode="contain"
+            />
+          ) : null}
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -204,5 +271,25 @@ const styles = StyleSheet.create({
     color: C.red,
     marginTop: 6,
     lineHeight: 14,
+  },
+  imageStack: { gap: 6 },
+  imageWrap: {
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "rgba(0,0,0,0.25)",
+  },
+  bubbleImage: {
+    width: "100%",
+    aspectRatio: 4 / 3,
+  },
+  previewBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.95)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewImage: {
+    width: "100%",
+    height: "100%",
   },
 });

@@ -34,6 +34,7 @@ function renderRow(item: ChatItem) {
           isDrive={item.isDrive}
           queued={item.queued}
           failed={item.failed}
+          attachments={item.attachments}
         />
       );
     case "eli":
