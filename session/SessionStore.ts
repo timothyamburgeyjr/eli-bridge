@@ -6,18 +6,12 @@ import { gatherSensorSnapshot } from "./liveSensors";
 import { buildJournal, journalFilename, BuiltJournal } from "./journalBuilder";
 import { startDrivingPoll, stopDrivingPoll } from "./drivingPoller";
 import {
-  collectSessionAttachments,
-  archiveSessionAttachments,
-  renderAttachmentsBlock,
-} from "./sessionAttachments";
-import {
   persistSession,
   hydrateSession as hydratePersistedSession,
   clearPersistedSession,
 } from "./sessionPersistence";
 import { resetPersonContextCache } from "@/people/personContext";
 import { useMode } from "@/stores/modeStore";
-import { useChat } from "@/stores/chatStore";
 import type { ChatItem } from "@/components/chat/ChatStream";
 
 const BIOGRAPHY_PATH = "08 - Elias Reed/biography.md";
@@ -47,18 +41,8 @@ interface SessionState {
   /** End the session, draft the journal, and hand control to the UI for Save/Discard. */
   end: (messages: ChatItem[]) => Promise<void>;
 
-  /**
-   * Save the drafted journal to the vault root. When `archiveAttachments`
-   * is true (default), all image/audio attachments captured during the
-   * session are uploaded alongside the journal markdown and embedded in a
-   * `## Attachments` section. Successfully-archived images are then deleted
-   * from the self-hosted image server (vault becomes the canonical copy).
-   */
-  saveJournal: (
-    finalTitle?: string,
-    finalMarkdown?: string,
-    archiveAttachments?: boolean
-  ) => Promise<void>;
+  /** Save the drafted journal to the vault root. */
+  saveJournal: (finalTitle?: string, finalMarkdown?: string) => Promise<void>;
 
   /** Discard the draft and return to idle. */
   discardJournal: () => void;
@@ -231,12 +215,12 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 
-  saveJournal: async (finalTitle, finalMarkdown, archiveAttachments = true) => {
+  saveJournal: async (finalTitle, finalMarkdown) => {
     const { journal } = get();
     if (!journal) return;
 
     const title = finalTitle?.trim() || journal.title;
-    let markdown = finalMarkdown ?? journal.markdown;
+    const markdown = finalMarkdown ?? journal.markdown;
     const filename = journalFilename(title, journal.dateYmd);
 
     set({ status: "saving" });
@@ -244,30 +228,11 @@ export const useSession = create<SessionState>((set, get) => ({
       if (!isVaultConfigured()) {
         throw new Error("Vault not configured");
       }
-
-      // ── Step 1: Optionally archive attachments to the vault root, then
-      // append a ## Attachments section to the markdown so Obsidian renders
-      // them inline. Archive runs BEFORE the journal write so the markdown
-      // we save is complete (no follow-up edits needed). Failed uploads
-      // don't block the journal — they just get omitted from the section.
-      if (archiveAttachments) {
-        const messages = useChat.getState().messages;
-        const candidates = collectSessionAttachments(messages);
-        if (candidates.length > 0) {
-          console.log(
-            `[session] archiving ${candidates.length} attachment(s) to vault…`
-          );
-          const result = await archiveSessionAttachments(candidates);
-          console.log(
-            `[session] archive done: ${result.archived.length} succeeded, ` +
-              `${result.failed.length} failed, ${result.serverDeleted} deleted from image server`
-          );
-          const block = renderAttachmentsBlock(result.archived);
-          if (block) markdown = markdown.trimEnd() + "\n" + block;
-        }
-      }
-
-      // ── Step 2: Write the journal (now with the embedded attachments).
+      // Write only the journal markdown. Photo attachments live on the
+      // self-hosted image server already (cowork skill organizes from
+      // there); audio attachments stay in the phone's cache. The earlier
+      // sequential vault dump was blocking the JS thread for 30s+ on
+      // photo-heavy sessions and was removed.
       await writeNote(filename, markdown);
       console.log(`[session] journal saved to vault root as ${filename}`);
       set({ status: "saved" });
