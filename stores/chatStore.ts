@@ -24,6 +24,10 @@ import { useMode } from "@/stores/modeStore";
 import { useSettings } from "@/stores/settingsStore";
 import { isOffline, useConnection } from "@/stores/connectionStore";
 import { persistQueue, hydrateQueue } from "@/session/queuePersistence";
+import {
+  persistMessages,
+  hydrateMessages,
+} from "@/session/chatPersistence";
 import type { SpeakerLabel, FaceLabel } from "@/types";
 
 export type SendStatus = "idle" | "assembling" | "sending" | "error";
@@ -158,6 +162,14 @@ interface ChatState {
    * sends are visible immediately. Safe to call multiple times.
    */
   hydrateOfflineQueue: () => Promise<void>;
+
+  /**
+   * Load the persisted chat thread from disk. Called once on app boot
+   * before the offline queue hydrates so message order is preserved.
+   * Survives deep-background OOM kills — without it, every process kill
+   * resets the chat thread to empty.
+   */
+  hydratePersistedMessages: () => Promise<void>;
 
   /**
    * Append a system-emitted card (RideCard, InterruptCard, etc.) directly
@@ -1051,6 +1063,16 @@ export const useChat = create<ChatState>((set, get) => ({
     }
   },
 
+  hydratePersistedMessages: async () => {
+    const persisted = await hydrateMessages();
+    if (persisted.length === 0) return;
+    // Only hydrate if the in-memory thread is empty — guards against
+    // overwriting a fresh start (e.g., user discarded a session, then
+    // hydration races on launch).
+    if (get().messages.length > 0) return;
+    set({ messages: persisted });
+  },
+
   hydrateOfflineQueue: async () => {
     const persisted = await hydrateQueue();
     if (persisted.length === 0) return;
@@ -1139,3 +1161,24 @@ export const useChat = create<ChatState>((set, get) => ({
     }
   },
 }));
+
+// ── Auto-persist messages to disk (debounced) ──────────────────────
+//
+// Subscribe to messages changes so the chat thread survives a deep-
+// background OOM kill. Debounced ~500ms so a rapid burst of system-card
+// emits (venue transitions, location arrivals) coalesces into a single
+// write. Fire-and-forget — write failures are logged but never thrown.
+//
+// Rendezvous with hydration: hydratePersistedMessages bails out if
+// messages.length > 0, so a hydrate-then-write race won't clobber.
+let messagesWriteTimer: ReturnType<typeof setTimeout> | null = null;
+let lastPersistedRef: unknown = null;
+useChat.subscribe((state, prev) => {
+  if (state.messages === prev.messages) return; // reference-equal, no change
+  if (state.messages === lastPersistedRef) return;
+  if (messagesWriteTimer) clearTimeout(messagesWriteTimer);
+  messagesWriteTimer = setTimeout(() => {
+    lastPersistedRef = state.messages;
+    persistMessages(state.messages);
+  }, 500);
+});

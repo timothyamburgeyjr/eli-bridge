@@ -10,6 +10,11 @@ import {
   archiveSessionAttachments,
   renderAttachmentsBlock,
 } from "./sessionAttachments";
+import {
+  persistSession,
+  hydrateSession as hydratePersistedSession,
+  clearPersistedSession,
+} from "./sessionPersistence";
 import { resetPersonContextCache } from "@/people/personContext";
 import { useMode } from "@/stores/modeStore";
 import { useChat } from "@/stores/chatStore";
@@ -57,6 +62,13 @@ interface SessionState {
 
   /** Discard the draft and return to idle. */
   discardJournal: () => void;
+
+  /**
+   * Restore session state from disk after a process kill. Called once on
+   * app boot. Resets in-flight statuses (saving, ending) to "active" since
+   * the user's intent was to act, not to commit a half-drafted journal.
+   */
+  hydrate: () => Promise<void>;
 }
 
 function newSessionId(): string {
@@ -89,6 +101,42 @@ async function composeInitialScene(): Promise<string> {
   return base.length > 160 ? base.slice(0, 157).trimEnd() + "…" : base;
 }
 
+/**
+ * Persist the relevant slice of the current store to disk so a deep-
+ * background OOM kill doesn't lose Tim's active session. Fire-and-
+ * forget; called from every action that mutates persisted fields.
+ */
+function persistCurrent(get: () => SessionState): void {
+  const s = get();
+  // Only persist statuses worth restoring. In-flight states (starting,
+  // ending, saving) reset to "active" on next launch — user's intent was
+  // to do the action, not to commit a half-completed transition.
+  let snapStatus: "idle" | "active" | "journal-ready" | "saved";
+  switch (s.status) {
+    case "active":
+    case "starting":
+    case "ending":
+    case "saving":
+      snapStatus = "active";
+      break;
+    case "journal-ready":
+      snapStatus = "journal-ready";
+      break;
+    case "saved":
+      snapStatus = "saved";
+      break;
+    default:
+      snapStatus = "idle";
+  }
+  persistSession({
+    sessionId: s.sessionId,
+    startedAt: s.startedAt,
+    endedAt: s.endedAt,
+    status: snapStatus,
+    journal: s.journal,
+  });
+}
+
 export const useSession = create<SessionState>((set, get) => ({
   status: "idle",
   sessionId: null,
@@ -112,6 +160,7 @@ export const useSession = create<SessionState>((set, get) => ({
       journal: null,
       errorMessage: null,
     });
+    persistCurrent(get);
 
     // Reset per-session caches. chatStore clearing is the caller's responsibility
     // (via chatStore.clear()) so session-start doesn't clobber existing chat.
@@ -154,6 +203,7 @@ export const useSession = create<SessionState>((set, get) => ({
 
     await Promise.all([bioPromise, scenePromise]);
     set({ status: "active" });
+    persistCurrent(get);
   },
 
   end: async (messages) => {
@@ -163,6 +213,7 @@ export const useSession = create<SessionState>((set, get) => ({
 
     const endedAt = new Date().toISOString();
     set({ status: "ending", endedAt });
+    persistCurrent(get);
 
     // Polling + driving/venue state are session-scoped — drop them on end.
     stopDrivingPoll();
@@ -172,6 +223,7 @@ export const useSession = create<SessionState>((set, get) => ({
     try {
       const journal = await buildJournal(messages, startedAt, endedAt);
       set({ journal, status: "journal-ready" });
+      persistCurrent(get);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn("[session] journal build failed:", err);
@@ -219,6 +271,10 @@ export const useSession = create<SessionState>((set, get) => ({
       await writeNote(filename, markdown);
       console.log(`[session] journal saved to vault root as ${filename}`);
       set({ status: "saved" });
+      // Wipe the persisted session — successful save means we don't want
+      // to rehydrate this on next launch and act like the trip is still
+      // open.
+      clearPersistedSession();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn("[session] journal save failed:", err);
@@ -239,5 +295,44 @@ export const useSession = create<SessionState>((set, get) => ({
       journal: null,
       errorMessage: null,
     });
+    clearPersistedSession();
+  },
+
+  hydrate: async () => {
+    const persisted = await hydratePersistedSession();
+    if (!persisted) return;
+    if (get().status !== "idle") return; // don't clobber an in-flight session
+
+    if (persisted.status === "active") {
+      // Recovery from OOM kill mid-session. Restart the GPS poller so
+      // arrivals/driving-detection resume; chatStore.hydratePersistedMessages
+      // (called separately in _layout) restores the chat thread.
+      set({
+        status: "active",
+        sessionId: persisted.sessionId,
+        startedAt: persisted.startedAt,
+        endedAt: persisted.endedAt,
+        biographyLoaded: false, // bio loads lazily on next send if needed
+        journal: persisted.journal,
+        errorMessage: null,
+      });
+      startDrivingPoll();
+      console.log("[session] hydrated active session from disk");
+    } else if (persisted.status === "journal-ready" || persisted.status === "saved") {
+      // Tim was at the post-end review screen — restore the drafted
+      // journal so he can still Save to Vault after the crash.
+      set({
+        status: persisted.status,
+        sessionId: persisted.sessionId,
+        startedAt: persisted.startedAt,
+        endedAt: persisted.endedAt,
+        biographyLoaded: false,
+        journal: persisted.journal,
+        errorMessage: null,
+      });
+      console.log(
+        `[session] hydrated ${persisted.status} state with drafted journal`
+      );
+    }
   },
 }));

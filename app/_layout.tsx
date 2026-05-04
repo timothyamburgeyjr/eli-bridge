@@ -11,15 +11,23 @@ import { DrivingAutoBanner } from "@/components/driving/DrivingAutoBanner";
 import { installVenueBridge } from "@/session/venueBridge";
 import { useConnection } from "@/stores/connectionStore";
 import { useChat } from "@/stores/chatStore";
+import { useSession } from "@/session/SessionStore";
 
 export default function RootLayout() {
   const hydratePeople = usePeople((s) => s.hydrate);
 
   useEffect(() => {
     hydratePeople();
-    // Restore any queued sends that were pending when the app was last killed.
-    // Done after people hydration so profile metadata is available for ID.
-    useChat.getState().hydrateOfflineQueue();
+    // Restore the chat thread + active session FIRST, before the offline
+    // queue, so message order is preserved (queue rebuilds queued bubbles
+    // by appending to whatever's there). Both survive a deep-background
+    // OOM kill that would otherwise reset the app to empty.
+    (async () => {
+      await useChat.getState().hydratePersistedMessages();
+      await useSession.getState().hydrate();
+      // Restore any queued sends that were pending when the app was last killed.
+      useChat.getState().hydrateOfflineQueue();
+    })();
     // One-time wiring: VenueMode ↔ accelerometer ride detection + RideCard dispatch.
     installVenueBridge();
 
