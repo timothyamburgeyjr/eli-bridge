@@ -3,6 +3,9 @@ node_modules/
 .env.backup-*
 .env.local
 .expo/
+# Local-only editor / Claude Code settings — never tracked.
+.claude/settings.local.json
+eli-bridge.code-workspace
 # Expo prebuild outputs at the repo root — intentionally regeneratable.
 # Do NOT use `android/` unanchored; it would also match modules/*/android/
 # which contains our HAND-WRITTEN Kotlin source for custom Expo modules.
