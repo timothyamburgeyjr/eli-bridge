@@ -34,15 +34,33 @@ let installed = false;
 let subscription: { remove(): void } | null = null;
 const reconnectHandlers = new Set<() => void>();
 
-function deriveState(
-  isConnected: boolean,
-  isInternetReachable: boolean | undefined | null
-): ReachabilityState {
-  if (!isConnected) return "offline";
-  // expo-network sometimes reports isInternetReachable as undefined on
-  // Android — treat unknown as online so we don't false-alarm with amber.
-  if (isInternetReachable === false) return "offline";
-  return "online";
+/**
+ * Real reachability probe. expo-network's `isInternetReachable` flag gives
+ * false negatives on Android — Tim saw "Disconnected" while Eli was
+ * actively responding. Instead of trusting that flag, we hit a tiny
+ * known-good endpoint (Google's generate_204 — 0-byte 204 response,
+ * purpose-built for connectivity checks, extremely available) and treat
+ * a successful response as ground truth that the network works.
+ *
+ * 8s timeout — generous for a degraded cellular link but short enough that
+ * a genuine outage resolves to "offline" reasonably fast.
+ */
+async function probeReachability(): Promise<boolean> {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 8000);
+  try {
+    const res = await fetch("https://www.gstatic.com/generate_204", {
+      method: "GET",
+      signal: ctl.signal,
+      cache: "no-store",
+    });
+    // 204 is the expected response; accept any 2xx as "the network works".
+    return res.status === 204 || res.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export const useConnection = create<ConnectionState>((set, get) => ({
@@ -62,13 +80,25 @@ export const useConnection = create<ConnectionState>((set, get) => ({
     try {
       const s = await Network.getNetworkStateAsync();
       const isConnected = !!s.isConnected;
-      const isReach = s.isInternetReachable ?? true;
       const previous = get().state;
-      const next = deriveState(isConnected, isReach);
+
+      // Radio genuinely off → trust it, skip the probe (no point).
+      // Radio on → the OS thinks there's a link, but isInternetReachable
+      // is unreliable, so confirm with an actual reachability probe.
+      let next: ReachabilityState;
+      let reachable: boolean;
+      if (!isConnected) {
+        next = "offline";
+        reachable = false;
+      } else {
+        reachable = await probeReachability();
+        next = reachable ? "online" : "offline";
+      }
+
       set({
         state: next,
         isConnected,
-        isInternetReachable: isReach,
+        isInternetReachable: reachable,
         lastCheckedAt: Date.now(),
       });
       if (previous === "offline" && next === "online") {
@@ -95,18 +125,19 @@ export const useConnection = create<ConnectionState>((set, get) => ({
     };
     if (typeof api.addNetworkStateListener === "function") {
       subscription = api.addNetworkStateListener((s: Network.NetworkState) => {
-        const isConnected = !!s.isConnected;
-        const isReach = s.isInternetReachable ?? true;
-        const previous = get().state;
-        const next = deriveState(isConnected, isReach);
-        set({
-          state: next,
-          isConnected,
-          isInternetReachable: isReach,
-          lastCheckedAt: Date.now(),
-        });
-        if (previous === "offline" && next === "online") {
-          fireReconnect();
+        // The OS event tells us the radio state changed. Trust an
+        // "off" reading immediately; for "on", run the full refresh()
+        // which probes actual reachability rather than trusting the
+        // unreliable isInternetReachable flag.
+        if (!s.isConnected) {
+          set({
+            state: "offline",
+            isConnected: false,
+            isInternetReachable: false,
+            lastCheckedAt: Date.now(),
+          });
+        } else {
+          get().refresh();
         }
       });
     }

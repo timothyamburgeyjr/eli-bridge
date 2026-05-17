@@ -71,9 +71,13 @@ export function SessionHeader({
           <EliAvatar size={26} fontSize={11} />
           <View>
             <Text style={{ fontSize: 15, fontWeight: "700", color: C.text }}>Eli's Bridge</Text>
-            <View style={{ marginTop: 2 }}>
+            <Pressable
+              onPress={() => useConnection.getState().refresh()}
+              hitSlop={6}
+              style={{ marginTop: 2 }}
+            >
               <StatusIndicator status={effectiveStatus} label={effectiveLabel} />
-            </View>
+            </Pressable>
           </View>
         </View>
 

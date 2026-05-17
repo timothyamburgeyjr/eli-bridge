@@ -137,31 +137,53 @@ const NEARBY_DEFAULT_RADIUS_M = 350;
 const NEARBY_WIDE_RADIUS_M = 1500;
 const NEARBY_MAX_RESULTS = 10;
 
+export interface FindNearbyPlacesResult {
+  /** The matched POIs, sorted by distance ascending. Empty array on
+   *  legitimate ZERO_RESULTS, or when the API surfaced an error. */
+  places: NearbyPlace[];
+  /** Diagnostic info on failure — undefined on success. Surfaced in the
+   *  PlacePickerModal so Tim sees the real cause (REQUEST_DENIED, key
+   *  restriction, quota) instead of the generic "no places found". */
+  error?: string;
+}
+
 /**
  * List the closest POIs to a coordinate, suitable for a "📍 Save place"
  * picker. Uses Google Places "Nearby Search" (legacy) — returns proper POI
  * names (not address-derived strings like the Geocoding API does).
  *
  * Sorted client-side by haversine distance from the origin. Capped at
- * NEARBY_MAX_RESULTS to keep the picker tight. Returns [] on API failure
- * so the caller can fall back to a "no places nearby" empty state.
+ * NEARBY_MAX_RESULTS to keep the picker tight. On API failure, returns
+ * { places: [], error: "..." } with the actual Google error so the modal
+ * can show what's wrong.
  */
 export async function findNearbyPlaces(
   lat: number,
   lon: number,
   radiusM: number = NEARBY_DEFAULT_RADIUS_M
-): Promise<NearbyPlace[]> {
+): Promise<FindNearbyPlacesResult> {
   const key = getEnv("GOOGLE_MAPS_API_KEY");
-  if (!key) return [];
+  if (!key) {
+    return {
+      places: [],
+      error: "Maps API key not configured (EXPO_PUBLIC_GOOGLE_MAPS_API_KEY).",
+    };
+  }
 
   try {
     const url =
       `https://maps.googleapis.com/maps/api/place/nearbysearch/json?` +
       `location=${lat},${lon}&radius=${radiusM}&key=${key}`;
     const res = await fetch(url);
-    if (!res.ok) return [];
+    if (!res.ok) {
+      return {
+        places: [],
+        error: `Places API HTTP ${res.status}: ${res.statusText}`,
+      };
+    }
     const json = (await res.json()) as {
       status: string;
+      error_message?: string;
       results?: {
         place_id: string;
         name: string;
@@ -172,10 +194,22 @@ export async function findNearbyPlaces(
         geometry?: { location: { lat: number; lng: number } };
       }[];
     };
-    if (json.status !== "OK" && json.status !== "ZERO_RESULTS") return [];
-    if (!json.results?.length) return [];
 
-    const enriched: NearbyPlace[] = json.results
+    if (json.status === "ZERO_RESULTS") {
+      return { places: [] };
+    }
+    if (json.status !== "OK") {
+      const detail = json.error_message ? ` — ${json.error_message}` : "";
+      console.warn(
+        `[places] Nearby Search status=${json.status}${detail}`
+      );
+      return {
+        places: [],
+        error: `Places API: ${json.status}${detail}`,
+      };
+    }
+
+    const enriched: NearbyPlace[] = (json.results ?? [])
       .filter((r) => r.geometry?.location && r.name)
       .map((r) => ({
         placeId: r.place_id,
@@ -192,9 +226,12 @@ export async function findNearbyPlaces(
       .sort((a, b) => a.distanceM - b.distanceM)
       .slice(0, NEARBY_MAX_RESULTS);
 
-    return enriched;
-  } catch {
-    return [];
+    return { places: enriched };
+  } catch (err) {
+    return {
+      places: [],
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 

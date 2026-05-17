@@ -58,17 +58,23 @@ export function PlacePickerModal({ visible, onClose, onPick }: Props) {
         return;
       }
       setOrigin({ latitude: loc.latitude, longitude: loc.longitude });
-      const found = await findNearbyPlaces(
+      const result = await findNearbyPlaces(
         loc.latitude,
         loc.longitude,
         wider ? NEARBY_PLACES_WIDE_RADIUS_M : undefined
       );
-      setPlaces(found);
-      if (found.length === 0) {
+      setPlaces(result.places);
+      if (result.error) {
+        // Surface the actual API error — usually "REQUEST_DENIED" with a
+        // message about the Places API not being enabled on the key, or
+        // a key-restriction issue. Far more useful than the old generic
+        // "no places found" empty state.
+        setError(result.error);
+      } else if (result.places.length === 0) {
         setError(
           wider
-            ? "Still no places found at 1.5km. Verify the Maps API key is enabled for Places, or pick somewhere by name later."
-            : "No places found nearby."
+            ? "No places at 1.5km radius. Genuinely sparse area, or pick somewhere by name later."
+            : "No places found nearby. Try the wider search."
         );
       }
     } catch (err) {

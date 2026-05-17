@@ -4,11 +4,13 @@ import { requireEnv } from "./env";
 const BASE_URL = "https://api.elevenlabs.io/v1";
 
 // Hard cap on a single synthesis fetch. ElevenLabs flash typically returns
-// in <2s for short Eli replies; 30s is generous headroom that still lets a
-// cellular dead-zone hang surface as a real error rather than locking the
-// audio pipeline. AudioStore catches the throw and clears currentMessageId
-// so Drive Mode's overlay unsticks.
-const SYNTHESIS_TIMEOUT_MS = 30_000;
+// in <2s for short Eli replies. 30s → 45s → 60s as field testing on rural
+// 5G with packet loss kept clipping the ceiling. 60s is the practical max:
+// past a minute the user has long given up, and the watchdog backstop in
+// drivingPoller (STUCK_GENERATING_MS) is tuned to recover stuck generation
+// independently. AudioStore catches the throw and clears currentMessageId
+// so Drive Mode's overlay unsticks either way.
+const SYNTHESIS_TIMEOUT_MS = 60_000;
 
 // Default to eleven_v3 — the only current ElevenLabs model that interprets
 // audio tags like [laughs] / [sighs] / [whispers] as paralinguistic cues rather

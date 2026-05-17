@@ -8,6 +8,7 @@ import { C } from "@/constants/theme";
 import { usePeople } from "@/people/PeopleStore";
 import { DrivingOverlay } from "@/components/driving/DrivingOverlay";
 import { DrivingAutoBanner } from "@/components/driving/DrivingAutoBanner";
+import { RecoveryPopup } from "@/components/common/RecoveryPopup";
 import { installVenueBridge } from "@/session/venueBridge";
 import { useConnection } from "@/stores/connectionStore";
 import { useChat } from "@/stores/chatStore";
@@ -56,6 +57,9 @@ export default function RootLayout() {
               visible above all screens, including Settings, modals, etc. */}
           <DrivingAutoBanner />
           <DrivingOverlay />
+          {/* Timeout-recovery popup — overlays everything, Driving Mode
+              included, when a pipeline step fails transiently. */}
+          <RecoveryPopup />
         </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>

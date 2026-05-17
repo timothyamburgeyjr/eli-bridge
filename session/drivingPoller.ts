@@ -30,7 +30,7 @@ const POLL_INTERVAL_MS = 15_000;
 // these are never hit. They exist as a backstop in case a future change
 // introduces an unbounded path.
 const STUCK_SEND_MS = 180_000; // 3 min — covers worst-case stack of Gemini + Kindroid
-const STUCK_GENERATING_MS = 75_000; // 75s — addAudioTags(15s) + synthesizeToFile(30s) + slack
+const STUCK_GENERATING_MS = 105_000; // addAudioTags(15s) + synthesizeToFile(60s) + 30s slack
 
 // Live-banner geocode cache: re-geocode only when Tim has moved >100m from
 // the last cached point. Avoids hitting the Places API every 15s while

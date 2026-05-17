@@ -3,6 +3,7 @@ import { createAudioPlayer, AudioPlayer } from "expo-audio";
 import { extractSpokenText, extractEmoteContext } from "@/components/chat/FormattedBody";
 import { addAudioTags } from "@/services/gemini";
 import { synthesizeToFile } from "@/services/elevenlabs";
+import { useRecovery } from "@/stores/recoveryStore";
 
 export type AudioStatus = "idle" | "generating" | "ready" | "playing" | "played" | "error";
 
@@ -181,15 +182,58 @@ export const useAudio = create<AudioState>((set, get) => ({
         cache: { ...s.cache, [messageId]: { messageId, status: "ready", path } },
       }));
       startPlayback(messageId, path, set, get);
+      // Success — clear any recovery popup state from a prior synth retry.
+      useRecovery.getState().clear();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       set((s) => ({
         cache: { ...s.cache, [messageId]: { messageId, status: "error", error: msg } },
         currentMessageId: null,
       }));
+      // Transient synth failure (timeout, network) → hand to the recovery
+      // popup so Tim can resubmit just the ElevenLabs step or cancel.
+      // Non-transient (e.g. emote-only "nothing to speak") stays a quiet
+      // cache error — a retry can't fix it.
+      if (isTransientAudioError(err)) {
+        useRecovery.getState().reportFailure(
+          "elevenlabs",
+          msg,
+          // Resubmit: regenerate from scratch (addAudioTags + synth).
+          () => get().playEli(messageId, rawMessage),
+          // Cancel: drop the error cache entry — the Eli message itself
+          // stays in the chat, just without audio.
+          () => {
+            set((s) => {
+              const next = { ...s.cache };
+              delete next[messageId];
+              return { cache: next };
+            });
+          }
+        );
+      }
     }
   },
 }));
+
+/**
+ * True for synth failures a retry could plausibly fix — timeouts, network
+ * drops, upstream 5xx. False for permanent problems (bad key, 4xx) where
+ * resubmitting just fails the same way.
+ */
+function isTransientAudioError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const m = err.message.toLowerCase();
+  return (
+    m.includes("timed out") ||
+    m.includes("timeout") ||
+    m.includes("network") ||
+    m.includes("failed to fetch") ||
+    m.includes("fetch failed") ||
+    m.includes("aborted") ||
+    m.includes("connection") ||
+    /http\s*5\d\d/.test(m)
+  );
+}
 
 function startPlayback(
   messageId: string,

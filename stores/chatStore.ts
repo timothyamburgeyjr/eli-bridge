@@ -23,6 +23,7 @@ import { resolveOrCreateProfilePath } from "@/people/profileLinker";
 import { useMode } from "@/stores/modeStore";
 import { useSettings } from "@/stores/settingsStore";
 import { isOffline, useConnection } from "@/stores/connectionStore";
+import { useRecovery } from "@/stores/recoveryStore";
 import { persistQueue, hydrateQueue } from "@/session/queuePersistence";
 import {
   persistMessages,
@@ -280,6 +281,18 @@ function stripHallucinatedContinuation(body: string): string {
  *   - 4xx (bad auth, bad request, quota exceeded).
  *   - Config/setup errors (missing env var, etc.).
  */
+/**
+ * Sentinel thrown out of a pipeline step once that step's transient failure
+ * has already been handed to the recovery popup. The outer sendMessage catch
+ * recognizes it and returns silently — recovery owns the message now.
+ */
+class HandledByRecovery extends Error {
+  constructor() {
+    super("handled-by-recovery");
+    this.name = "HandledByRecovery";
+  }
+}
+
 function isTransientSendError(err: unknown): boolean {
   if (isOffline()) return true;
   if (!(err instanceof Error)) return false;
@@ -595,50 +608,20 @@ export const useChat = create<ChatState>((set, get) => ({
       return;
     }
 
-    // ── Offline guard ────────────────────────────────────────────────
-    // Ambient pings are stale by the time we reconnect — drop them on
-    // offline rather than queuing.
+    // ── Offline handling ─────────────────────────────────────────────
+    // No preemptive offline gate. Earlier this checked isOffline() upfront
+    // and queued without trying — but the offline signal had false
+    // positives (expo-network's isInternetReachable), so messages got
+    // queued as "offline" while Tim was demonstrably online (Eli was
+    // mid-reply). Now: ALWAYS attempt the send. If it genuinely fails
+    // with a transient/network error, the catch block below converts it
+    // to a queued retry. Worst case on a real outage is one doomed
+    // attempt that fails fast against the upstream timeouts — correct
+    // beats clever.
+    //
+    // Ambient pings still bail on a confirmed-offline reading: they're
+    // stale by the time a retry would drain, so queuing them is pointless.
     if (ambientPing && isOffline()) return;
-
-    // If the device is offline, don't even attempt Gemini/Kindroid calls.
-    // Queue the message + show a "queued" Tim bubble in the chat. The
-    // queue drainer will replay this via sendMessage once we're online.
-    if (isOffline()) {
-      const qId = `tim-queued-${Date.now()}`;
-      const queuedMsg: ChatItem = {
-        id: qId,
-        from: "tim",
-        time: timeString(),
-        emote: "",
-        dialog: text || "(queued audio)",
-        attachments: attachments.map((a) => ({
-          type: a.kind,
-          localPath: a.localPath,
-          mimeType: a.mimeType,
-          duration: a.duration,
-        })),
-        queued: true,
-      };
-      const entry: QueuedSend = {
-        id: qId,
-        dialog: text,
-        attachments: [...attachments],
-        sceneMemo: state.pendingSceneMemo,
-        queuedAt: new Date().toISOString(),
-        retryCount: 0,
-      };
-      const nextQueue = [...state.offlineQueue, entry];
-      set({
-        messages: [...state.messages, queuedMsg],
-        offlineQueue: nextQueue,
-        pending: [],
-        pendingSceneMemo: null,
-        status: "idle",
-        errorMessage: null,
-      });
-      persistQueue(nextQueue);
-      return;
-    }
 
     const timMsgId = `tim-${Date.now()}`;
     const pendingTim: ChatItem = {
@@ -799,16 +782,46 @@ export const useChat = create<ChatState>((set, get) => ({
 
       const sceneMemo = state.pendingSceneMemo ?? undefined;
 
-      const assembled = await assembler.assemble({
-        sensors: sensorsWithLabels,
-        timDialog: text,
-        images,
-        audios,
-        history,
-        sceneMemo,
-        briefingContext,
-        lookupContext,
-      });
+      // ── Gemini step ── emote assembly. On transient failure, hand off
+      // to the recovery popup instead of failing the whole send.
+      let assembled: Awaited<ReturnType<typeof assembler.assemble>>;
+      try {
+        assembled = await assembler.assemble({
+          sensors: sensorsWithLabels,
+          timDialog: text,
+          images,
+          audios,
+          history,
+          sceneMemo,
+          briefingContext,
+          lookupContext,
+        });
+      } catch (err) {
+        if (!isTransientSendError(err)) throw err;
+        const msg = err instanceof Error ? err.message : String(err);
+        useRecovery.getState().reportFailure(
+          "gemini",
+          msg,
+          async () => {
+            // Resubmit: Gemini is step 1, so a clean restart IS resuming
+            // from this step. Drop the stale pending bubble first.
+            set((s) => ({
+              messages: s.messages.filter((m) => m.id !== timMsgId),
+            }));
+            await get().sendMessage(dialog, opts);
+          },
+          () => {
+            // Cancel: drop the pending bubble, back to idle.
+            set((s) => ({
+              messages: s.messages.filter((m) => m.id !== timMsgId),
+              status: "idle",
+              sendStartedAt: null,
+            }));
+          }
+        );
+        set({ status: "idle", sendStartedAt: null });
+        throw new HandledByRecovery();
+      }
 
       // ── Step 1b: Reconstruct client-side so Tim's text is verbatim.
       // If Tim sent only audio (no typed text), fall back to Gemini's full
@@ -882,42 +895,75 @@ export const useChat = create<ChatState>((set, get) => ({
         pendingLookups: [], // lookup context consumed
       });
 
-      // ── Step 2: Upload any images to the self-hosted image server for Kindroid's image_urls
-      let imageUrls: string[] | undefined;
-      if (attachments.some((a) => a.kind === "image") && isImageServerConfigured()) {
-        imageUrls = [];
-        for (const att of attachments.filter((a) => a.kind === "image")) {
-          try {
-            const result = await uploadImage(att.localPath);
-            imageUrls.push(result.url);
-          } catch (err) {
-            // Non-fatal — Eli just won't see that image
-            console.warn("Image server upload failed", err);
+      // ── Kindroid step ── image upload + relay to Eli. Extracted into a
+      // closure so the recovery popup can re-run JUST this step on a
+      // transient failure — without redoing the Gemini emote assembly.
+      // References itself as its own retry continuation.
+      const deliverToKindroid = async (): Promise<void> => {
+        set({ status: "sending", sendStartedAt: Date.now() });
+
+        // Upload any images to the self-hosted image server for image_urls.
+        let imageUrls: string[] | undefined;
+        if (attachments.some((a) => a.kind === "image") && isImageServerConfigured()) {
+          imageUrls = [];
+          for (const att of attachments.filter((a) => a.kind === "image")) {
+            try {
+              const result = await uploadImage(att.localPath);
+              imageUrls.push(result.url);
+            } catch (err) {
+              // Non-fatal — Eli just won't see that image
+              console.warn("Image server upload failed", err);
+            }
           }
         }
-      }
 
-      // ── Step 3: Kindroid relays to Eli
-      const eliRaw = await kindroidSend(finalRaw, {
-        imageUrls,
-      });
-      const eliParsed = parseAssembledMessage(eliRaw);
+        let eliRaw: string;
+        try {
+          eliRaw = await kindroidSend(finalRaw, { imageUrls });
+        } catch (err) {
+          if (!isTransientSendError(err)) throw err;
+          const failMsg = err instanceof Error ? err.message : String(err);
+          useRecovery.getState().reportFailure(
+            "kindroid",
+            failMsg,
+            deliverToKindroid, // resubmit = re-run just this step
+            () => {
+              // Cancel: drop the finalized Tim bubble, back to idle.
+              set((s) => ({
+                messages: s.messages.filter((m) => m.id !== timMsgId),
+                status: "idle",
+                sendStartedAt: null,
+              }));
+            }
+          );
+          set({ status: "idle", sendStartedAt: null });
+          throw new HandledByRecovery();
+        }
 
-      const eliMsg: ChatItem = {
-        id: `eli-${Date.now()}`,
-        from: "eli",
-        time: timeString(),
-        emote: eliParsed.leadingEmote || undefined,
-        dialog: eliParsed.body || eliParsed.raw,
-        raw: eliParsed.raw,
+        const eliParsed = parseAssembledMessage(eliRaw);
+        const eliMsg: ChatItem = {
+          id: `eli-${Date.now()}`,
+          from: "eli",
+          time: timeString(),
+          emote: eliParsed.leadingEmote || undefined,
+          dialog: eliParsed.body || eliParsed.raw,
+          raw: eliParsed.raw,
+        };
+        set({
+          messages: [...get().messages, eliMsg],
+          status: "idle",
+          sendStartedAt: null,
+        });
+        // Success — clear any recovery popup state from a prior retry.
+        useRecovery.getState().clear();
       };
 
-      set({
-        messages: [...get().messages, eliMsg],
-        status: "idle",
-        sendStartedAt: null,
-      });
+      await deliverToKindroid();
     } catch (err) {
+      // A step already handed off to the recovery popup — it owns the
+      // message now, nothing more for the outer catch to do.
+      if (err instanceof HandledByRecovery) return;
+
       const msg = err instanceof Error ? err.message : String(err);
 
       if (isTransientSendError(err)) {

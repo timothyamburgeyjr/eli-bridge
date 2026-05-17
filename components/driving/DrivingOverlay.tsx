@@ -240,8 +240,7 @@ export function DrivingOverlay() {
       // mic. Without this the prepareToRecordAsync call below can fail
       // silently after a TTS playback left the session in playback mode.
       await setRecordingAudioMode();
-      await recorderRef.current.prepareToRecordAsync();
-      recorderRef.current.record();
+      await beginRecordingCycle(recorderRef.current);
       setRecording(true);
       setElapsed(0);
       timerRef.current = setInterval(() => {
@@ -331,6 +330,40 @@ function extractTimestampFromId(id: string): number | null {
   if (!m) return null;
   const n = parseInt(m[1], 10);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Start a recording cycle robustly. expo-audio's recorder (Android, SDK 55)
+ * doesn't reliably reset after stop() across multiple record cycles in one
+ * session — prepareToRecordAsync or record() throws IllegalStateException
+ * because the native MediaRecorder is in a stale state.
+ *
+ * Defense: always stop() first to force the recorder back to a clean state
+ * (a no-op throw when nothing's recording, swallowed). Then prepare + record.
+ * If record() still throws, hard-reset once more and retry — one retry only,
+ * then surface the error so the watchdog / Tim's tap can recover.
+ */
+async function beginRecordingCycle(
+  recorder: { prepareToRecordAsync: () => Promise<unknown>; record: () => void; stop: () => Promise<unknown> }
+): Promise<void> {
+  const attempt = async () => {
+    try {
+      await recorder.stop();
+    } catch {
+      // nothing was recording — expected on the happy path
+    }
+    await recorder.prepareToRecordAsync();
+    recorder.record();
+  };
+
+  try {
+    await attempt();
+  } catch (firstErr) {
+    console.warn("[drive] recording cycle failed once, retrying:", firstErr);
+    // Brief pause to let the native recorder settle before the retry.
+    await new Promise((r) => setTimeout(r, 200));
+    await attempt(); // if this throws, it propagates to the caller's catch
+  }
 }
 
 const styles = StyleSheet.create({
