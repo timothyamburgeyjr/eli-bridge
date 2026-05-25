@@ -1,5 +1,6 @@
 import { File } from "expo-file-system";
 import { getEnv } from "./env";
+import { combineWithAbortSignal } from "@/session/abortBus";
 
 export interface ImageUploadResult {
   /** Absolute public URL to the uploaded image. */
@@ -70,14 +71,22 @@ export async function uploadImage(localPath: string): Promise<ImageUploadResult>
 
   const uploadUrl = `${serverUrl.replace(/\/+$/, "")}/upload/${encodeURIComponent(sessionId)}/${encodeURIComponent(filename)}`;
 
-  const res = await fetch(uploadUrl, {
-    method: "PUT",
-    headers: {
-      "X-Upload-Key": uploadKey,
-      "Content-Type": contentTypeFor(ext),
-    },
-    body: bytes,
-  });
+  // Wire the global abort bus so the ⏹ button kills slow uploads instantly.
+  const { signal, cleanup } = combineWithAbortSignal();
+  let res: Response;
+  try {
+    res = await fetch(uploadUrl, {
+      method: "PUT",
+      headers: {
+        "X-Upload-Key": uploadKey,
+        "Content-Type": contentTypeFor(ext),
+      },
+      body: bytes,
+      signal,
+    });
+  } finally {
+    cleanup();
+  }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => "(no body)");

@@ -1,5 +1,6 @@
 import { requireEnv } from "./env";
 import { CONFIG } from "@/constants/config";
+import { combineWithAbortSignal } from "@/session/abortBus";
 
 const BASE_URL = "https://api.kindroid.ai/v1";
 
@@ -29,7 +30,11 @@ async function kindroidRequest(opts: RequestOpts): Promise<string> {
   const key = requireEnv("KINDROID_API_KEY");
 
   const attempt = async (): Promise<string> => {
+    // Combine the per-attempt timeout controller with the global abort bus so
+    // the user-facing ⏹ Abort button kills this fetch instantly, alongside
+    // the normal timeout backstop.
     const ctl = new AbortController();
+    const { signal, cleanup } = combineWithAbortSignal(ctl.signal);
     const t = setTimeout(() => ctl.abort(), opts.timeoutMs);
     try {
       const res = await fetch(`${BASE_URL}${opts.path}`, {
@@ -39,7 +44,7 @@ async function kindroidRequest(opts: RequestOpts): Promise<string> {
           Authorization: `Bearer ${key}`,
         },
         body: JSON.stringify(opts.body),
-        signal: ctl.signal,
+        signal,
       });
       if (!res.ok) {
         const errText = await res.text().catch(() => "(no body)");
@@ -48,6 +53,7 @@ async function kindroidRequest(opts: RequestOpts): Promise<string> {
       return await res.text();
     } finally {
       clearTimeout(t);
+      cleanup();
     }
   };
 

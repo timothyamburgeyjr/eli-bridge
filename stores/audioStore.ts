@@ -4,6 +4,11 @@ import { extractSpokenText, extractEmoteContext } from "@/components/chat/Format
 import { addAudioTags } from "@/services/gemini";
 import { synthesizeToFile } from "@/services/elevenlabs";
 import { useRecovery } from "@/stores/recoveryStore";
+import {
+  currentAbortSignal,
+  currentGeneration,
+  isStaleGeneration,
+} from "@/session/abortBus";
 
 export type AudioStatus = "idle" | "generating" | "ready" | "playing" | "played" | "error";
 
@@ -156,6 +161,13 @@ export const useAudio = create<AudioState>((set, get) => ({
       currentMessageId: messageId,
     }));
 
+    // Snapshot the abort-bus generation. If the user trips the ⏹ button
+    // while addAudioTags or synthesizeToFile is running, abortPipeline
+    // resets the cache entry; the late completion below must not clobber
+    // that reset.
+    const myGen = currentGeneration();
+    const abortSignal = currentAbortSignal();
+
     try {
       const dialog = extractSpokenText(rawMessage);
       if (!dialog) {
@@ -175,8 +187,10 @@ export const useAudio = create<AudioState>((set, get) => ({
       }
 
       const emoteContext = extractEmoteContext(rawMessage);
-      const tagged = await addAudioTags(dialog, emoteContext);
+      const tagged = await addAudioTags(dialog, emoteContext, abortSignal);
+      if (isStaleGeneration(myGen)) return;
       const path = await synthesizeToFile(tagged, messageId);
+      if (isStaleGeneration(myGen)) return;
 
       set((s) => ({
         cache: { ...s.cache, [messageId]: { messageId, status: "ready", path } },
@@ -185,6 +199,11 @@ export const useAudio = create<AudioState>((set, get) => ({
       // Success — clear any recovery popup state from a prior synth retry.
       useRecovery.getState().clear();
     } catch (err) {
+      // User aborted while synth was in flight — abortPipeline already
+      // cleared cache entry and currentMessageId. Don't re-write error,
+      // don't open the recovery popup.
+      if (isStaleGeneration(myGen)) return;
+
       const msg = err instanceof Error ? err.message : String(err);
       set((s) => ({
         cache: { ...s.cache, [messageId]: { messageId, status: "error", error: msg } },

@@ -1,5 +1,6 @@
 import { File, Paths } from "expo-file-system";
 import { requireEnv } from "./env";
+import { currentAbortSignal } from "@/session/abortBus";
 
 const BASE_URL = "https://api.elevenlabs.io/v1";
 
@@ -72,6 +73,14 @@ export async function synthesizeToFile(
   const ctl = new AbortController();
   const startTime = Date.now();
 
+  // Wire the global abort bus so the ⏹ button kills synth mid-stream. The
+  // local controller still owns the three timeout legs below; this just adds
+  // a fourth abort trigger driven by the user.
+  const busSignal = currentAbortSignal();
+  const onBusAbort = () => ctl.abort();
+  if (busSignal.aborted) ctl.abort();
+  else busSignal.addEventListener("abort", onBusAbort, { once: true });
+
   // Coordinated timeout state:
   //   - firstByteTimer fires if no response arrives at all
   //   - hardCapTimer fires unconditionally as the sanity backstop
@@ -88,6 +97,7 @@ export async function synthesizeToFile(
     if (firstByteTimer) clearTimeout(firstByteTimer);
     if (stallTimer) clearTimeout(stallTimer);
     clearTimeout(hardCapTimer);
+    busSignal.removeEventListener("abort", onBusAbort);
     firstByteTimer = null;
     stallTimer = null;
   };

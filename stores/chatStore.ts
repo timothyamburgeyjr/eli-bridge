@@ -26,6 +26,11 @@ import { isOffline, useConnection } from "@/stores/connectionStore";
 import { useRecovery } from "@/stores/recoveryStore";
 import { persistQueue, hydrateQueue } from "@/session/queuePersistence";
 import {
+  currentAbortSignal,
+  currentGeneration,
+  isStaleGeneration,
+} from "@/session/abortBus";
+import {
   persistMessages,
   hydrateMessages,
 } from "@/session/chatPersistence";
@@ -644,6 +649,14 @@ export const useChat = create<ChatState>((set, get) => ({
       sendStartedAt: Date.now(),
     });
 
+    // Snapshot the abort-bus generation at entry. If the user trips the
+    // global Abort button mid-flight, generation increments and every catch
+    // / success-write path below checks against this captured value and
+    // bails — abortPipeline() has already done the visible state cleanup,
+    // so any late completion must NOT clobber it.
+    const myGen = currentGeneration();
+    const abortSignal = currentAbortSignal();
+
     try {
       // ── Step 1: Gather live sensor snapshot (GPS + Places + Weather + Barometer)
       const sensors = state.sensorOverride ?? (await gatherSensorSnapshot());
@@ -795,8 +808,13 @@ export const useChat = create<ChatState>((set, get) => ({
           sceneMemo,
           briefingContext,
           lookupContext,
+          signal: abortSignal,
         });
       } catch (err) {
+        // User aborted while Gemini was in flight — abortPipeline already
+        // cleared the pending bubble and reset state. Silently exit instead
+        // of routing this throw to the recovery popup.
+        if (isStaleGeneration(myGen)) throw new HandledByRecovery();
         if (!isTransientSendError(err)) throw err;
         const msg = err instanceof Error ? err.message : String(err);
         useRecovery.getState().reportFailure(
@@ -822,6 +840,10 @@ export const useChat = create<ChatState>((set, get) => ({
         set({ status: "idle", sendStartedAt: null });
         throw new HandledByRecovery();
       }
+
+      // Late guard: Gemini may have returned cleanly between the abort
+      // firing and our awaiting it. Bail before any further state writes.
+      if (isStaleGeneration(myGen)) throw new HandledByRecovery();
 
       // ── Step 1b: Reconstruct client-side so Tim's text is verbatim.
       // If Tim sent only audio (no typed text), fall back to Gemini's full
@@ -921,6 +943,9 @@ export const useChat = create<ChatState>((set, get) => ({
         try {
           eliRaw = await kindroidSend(finalRaw, { imageUrls });
         } catch (err) {
+          // User aborted while Kindroid was in flight — state already
+          // cleared by abortPipeline. Don't surface to the recovery popup.
+          if (isStaleGeneration(myGen)) throw new HandledByRecovery();
           if (!isTransientSendError(err)) throw err;
           const failMsg = err instanceof Error ? err.message : String(err);
           useRecovery.getState().reportFailure(
@@ -939,6 +964,11 @@ export const useChat = create<ChatState>((set, get) => ({
           set({ status: "idle", sendStartedAt: null });
           throw new HandledByRecovery();
         }
+
+        // Late guard: Kindroid may have replied between abort firing and
+        // our await resolving. Drop Eli's reply rather than landing it
+        // after the chat has been visually reset.
+        if (isStaleGeneration(myGen)) throw new HandledByRecovery();
 
         const eliParsed = parseAssembledMessage(eliRaw);
         const eliMsg: ChatItem = {
@@ -963,6 +993,11 @@ export const useChat = create<ChatState>((set, get) => ({
       // A step already handed off to the recovery popup — it owns the
       // message now, nothing more for the outer catch to do.
       if (err instanceof HandledByRecovery) return;
+
+      // User-triggered abort: state was reset by abortPipeline before this
+      // throw bubbled up. Do NOT queue (the message has been visibly
+      // discarded — queuing it would resurrect what the user just killed).
+      if (isStaleGeneration(myGen)) return;
 
       const msg = err instanceof Error ? err.message : String(err);
 
@@ -1150,6 +1185,11 @@ export const useChat = create<ChatState>((set, get) => ({
     if (photoPaths.length === 0) return;
     set({ sceneStatus: "analyzing", sceneError: null });
 
+    // Snapshot abort generation so a user abort mid-Gemini-Pro doesn't
+    // get steamrolled by a late-arriving scene card or kindroid push.
+    const myGen = currentGeneration();
+    const abortSignal = currentAbortSignal();
+
     try {
       // ── Step 1: Gemini Pro analyzes the scene
       const images = await Promise.all(
@@ -1172,7 +1212,9 @@ export const useChat = create<ChatState>((set, get) => ({
       const richScene = await geminiAnalyzeScene({
         prompt: scenePrompt,
         images,
+        signal: abortSignal,
       });
+      if (isStaleGeneration(myGen)) return;
 
       // ── Step 2: Immediately update Kindroid's current_scene (persistent backdrop)
       const condensed = condenseForKindroid(richScene, note);
@@ -1182,6 +1224,7 @@ export const useChat = create<ChatState>((set, get) => ({
         // Non-fatal — scene memo still grounds the next emote even if the push fails
         console.warn("Kindroid updateScene failed", err);
       }
+      if (isStaleGeneration(myGen)) return;
 
       // ── Step 3: Stage rich memo for next Tim message (one-shot)
       // ── Step 4: Add Scene card to chat stream
@@ -1202,6 +1245,7 @@ export const useChat = create<ChatState>((set, get) => ({
         messages: [...s.messages, sceneCardMsg],
       }));
     } catch (err) {
+      if (isStaleGeneration(myGen)) return;
       const msg = err instanceof Error ? err.message : String(err);
       set({ sceneStatus: "error", sceneError: msg });
     }

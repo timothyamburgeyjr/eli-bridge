@@ -6,6 +6,9 @@ import { StatusIndicator } from "@/components/common/StatusIndicator";
 import { useMode } from "@/stores/modeStore";
 import { useConnection } from "@/stores/connectionStore";
 import { useChat } from "@/stores/chatStore";
+import { useAudio } from "@/stores/audioStore";
+import { useRecovery } from "@/stores/recoveryStore";
+import { abortPipeline } from "@/session/abortPipeline";
 
 interface Props {
   connected: boolean;
@@ -46,6 +49,25 @@ export function SessionHeader({
       ? `Offline · ${queuedCount} queued`
       : "Offline"
     : "Connected";
+
+  // ── Abort-button visibility ───────────────────────────────────────
+  // The ⏹ button appears whenever the pipeline has something to tear down.
+  // Subscribes individually so any of these flipping back to "idle" re-renders
+  // the header and the button disappears the moment there's nothing to abort.
+  const chatStatus = useChat((s) => s.status);
+  const sceneStatus = useChat((s) => s.sceneStatus);
+  const audioCurrentId = useAudio((s) => s.currentMessageId);
+  const audioEntryStatus = useAudio((s) =>
+    s.currentMessageId ? s.cache[s.currentMessageId]?.status : undefined
+  );
+  const recoveryFailure = useRecovery((s) => s.failure);
+  const showAbort =
+    chatStatus === "assembling" ||
+    chatStatus === "sending" ||
+    sceneStatus === "analyzing" ||
+    (audioCurrentId != null &&
+      (audioEntryStatus === "generating" || audioEntryStatus === "playing")) ||
+    recoveryFailure !== null;
 
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
 
@@ -102,6 +124,23 @@ export function SessionHeader({
           <Pressable onPress={onSettingsPress} style={styles.iconBtn}>
             <Text style={{ fontSize: 16, color: C.textDim }}>⚙︎</Text>
           </Pressable>
+          {showAbort && (
+            <Pressable
+              onPress={() => abortPipeline("header-button")}
+              style={[
+                styles.iconBtn,
+                {
+                  backgroundColor: C.red + "22",
+                  borderColor: C.red + "66",
+                },
+              ]}
+              accessibilityLabel="Abort current operation"
+            >
+              <Text style={{ fontSize: 14, color: C.red, fontWeight: "700" }}>
+                ⏹
+              </Text>
+            </Pressable>
+          )}
           <Pressable
             onPress={onTogglePress}
             style={[

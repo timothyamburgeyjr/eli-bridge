@@ -34,6 +34,12 @@ export interface AssembleOptions {
    * "no fabrication" rule from briefing doesn't suppress its use.
    */
   lookupContext?: string;
+  /**
+   * Abort signal — propagated into both the assembleEmote and condenseEmote
+   * Gemini calls so a user-triggered abort short-circuits the deadline race
+   * rather than waiting for it to expire.
+   */
+  signal?: AbortSignal;
 }
 
 export interface AssembleResult extends ParsedMessage {
@@ -92,11 +98,12 @@ export class EmoteAssembler {
       images: opts.images,
       audios: opts.audios,
       history: opts.history,
+      signal: opts.signal,
     });
 
     // Character cap enforcement: trim over-budget emote via condensation
     if (parsed.leadingEmote.length > CONFIG.EMOTE_CHAR_CAP) {
-      const trimmed = await condenseEmote(parsed.leadingEmote, CONFIG.EMOTE_CHAR_CAP);
+      const trimmed = await condenseEmote(parsed.leadingEmote, CONFIG.EMOTE_CHAR_CAP, opts.signal);
       const capped = trimmed.length > CONFIG.EMOTE_CHAR_CAP
         ? trimmed.slice(0, CONFIG.EMOTE_CHAR_CAP).trim()
         : trimmed;

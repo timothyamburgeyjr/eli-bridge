@@ -109,6 +109,9 @@ export interface AssembleEmoteInput {
   audios?: { mimeType: string; data: string }[];
   /** Prior turns in this session in chronological order. */
   history?: Content[];
+  /** Abort signal — wired into the deadline race so a user abort wakes us
+   *  immediately instead of waiting out the full 30s budget. */
+  signal?: AbortSignal;
 }
 
 export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMessage> {
@@ -170,7 +173,8 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
   const result = await withDeadline(
     withRetry(() => flash().generateContent({ contents })),
     30_000,
-    "assembleEmote"
+    "assembleEmote",
+    input.signal
   );
   const text = result.response.text();
   return parseAssembledMessage(text);
@@ -182,6 +186,7 @@ export async function analyzeScene(opts: {
   prompt: string;
   images?: { mimeType: string; data: string }[];
   audios?: { mimeType: string; data: string }[];
+  signal?: AbortSignal;
 }): Promise<string> {
   const parts: Part[] = [{ text: opts.prompt }];
   for (const img of opts.images ?? []) parts.push({ inlineData: img });
@@ -193,7 +198,8 @@ export async function analyzeScene(opts: {
       pro().generateContent({ contents: [{ role: "user", parts }] })
     ),
     45_000,
-    "analyzeScene"
+    "analyzeScene",
+    opts.signal
   );
   return result.response.text().trim();
 }
@@ -248,6 +254,94 @@ export async function analyzePhotoSubject(image: {
   };
 }
 
+// ── analyzePhotoCandidates + researchPhotoSubject (pro model) ────
+//
+// Two-stage variant of the "🔍 Look this up" flow. Replaces the single-shot
+// analyzePhotoSubject path in PhotoLookupModal — instead of Gemini guessing
+// the one "main subject" of the photo, Tim sees a short list of candidate
+// subjects in the image and picks the one he actually cares about. The
+// chosen subject then gets researched on its own (image re-attached so
+// Gemini can write specific-to-this-shot context, not just generic prose).
+
+export interface PhotoCandidate {
+  /** Short label, 1-4 words — e.g. "Beale's eyed turtle". Used as the
+   *  attached-lookup subject if Tim picks it. */
+  subject: string;
+  /** Brief locator, 5-10 words — where in the image it is or what it looks
+   *  like. Helps Tim disambiguate when multiple candidates fit. */
+  locator: string;
+}
+
+/**
+ * Identify 3–5 distinct subjects in a photo Tim might want to look up.
+ * Returns a candidate list for the picker UI; nothing is researched yet —
+ * that happens in researchPhotoSubject once Tim picks one.
+ */
+export async function analyzePhotoCandidates(
+  image: { mimeType: string; data: string },
+  signal?: AbortSignal
+): Promise<PhotoCandidate[]> {
+  const prompt =
+    "You are looking at a photo Tim took. Identify 3-5 distinct subjects in " +
+    "the image that Tim might want to look up — animals, plants, objects, " +
+    "buildings, dishes, vehicles, landmarks, signs, etc. Each should be " +
+    "something Tim could plausibly be curious about, not background clutter. " +
+    "Order them by how prominent / likely-of-interest they are.\n\n" +
+    "Respond in EXACTLY this format, no preamble, no markdown:\n" +
+    "SUBJECT: <short label, 1-4 words — e.g. \"Beale's eyed turtle\">\n" +
+    "WHERE: <brief locator, 5-10 words — where in the image it is or what it looks like>\n" +
+    "---\n" +
+    "SUBJECT: <label>\n" +
+    "WHERE: <locator>\n" +
+    "---\n" +
+    "(3-5 entries total, each separated by --- on its own line, no trailing ---)";
+
+  const text = await analyzeScene({ prompt, images: [image], signal });
+  const candidates: PhotoCandidate[] = [];
+  // Split on a --- line; tolerate extra whitespace around it.
+  const chunks = text.split(/^\s*---\s*$/m);
+  for (const chunk of chunks) {
+    const subjectMatch = chunk.match(/^\s*SUBJECT:\s*(.+?)\s*$/im);
+    const whereMatch = chunk.match(/^\s*WHERE:\s*(.+?)\s*$/im);
+    if (subjectMatch) {
+      candidates.push({
+        subject: subjectMatch[1].trim(),
+        locator: whereMatch?.[1].trim() ?? "",
+      });
+    }
+  }
+  if (candidates.length === 0) {
+    throw new Error(
+      `analyzePhotoCandidates: couldn't parse any candidates. Raw: ${text.slice(0, 200)}`
+    );
+  }
+  return candidates;
+}
+
+/**
+ * Research a specific subject Tim picked from the candidate list. Re-attaches
+ * the photo so Gemini can write context grounded in this particular shot
+ * (e.g. acknowledging which variant / breed / model is visible) rather than
+ * generic encyclopedia copy.
+ */
+export async function researchPhotoSubject(
+  image: { mimeType: string; data: string },
+  subject: string,
+  signal?: AbortSignal
+): Promise<string> {
+  const prompt =
+    `You are looking at a photo Tim took. Tim has indicated he wants to ` +
+    `know about the "${subject}" visible in this image.\n\n` +
+    `Write 3-4 sentences of factual context about ${subject} from your ` +
+    `training knowledge. Cover: what is it, key distinguishing facts, ` +
+    `where it's found or where it's from. If anything specific to THIS ` +
+    `photo refines the answer (a particular breed, model year, species ` +
+    `variant), mention that. Plain prose, no bullet points, no markdown, ` +
+    `no preamble. Don't describe the photo itself — describe the subject.`;
+
+  return analyzeScene({ prompt, images: [image], signal });
+}
+
 // ── draftJournal (flash) ─────────────────────────────────────────
 
 export async function draftJournal(sessionSummary: string): Promise<string> {
@@ -269,24 +363,52 @@ export async function draftJournal(sessionSummary: string): Promise<string> {
 }
 
 /**
- * Race a promise against a timeout. On timeout the race rejects with a
- * descriptive error, but the underlying promise keeps running (we can't
- * abort the Gemini SDK's fetch from out here). Used on operations that
- * block UI transitions where waiting forever is worse than a fallback
- * message — notably draftJournal on session end.
+ * Race a promise against a timeout AND (optionally) an external AbortSignal.
+ * On timeout: rejects with a descriptive timeout error. On signal abort:
+ * rejects immediately with an AbortError. The underlying Gemini SDK promise
+ * keeps running in both cases (we can't kill its fetch from out here), but
+ * the JS side stops awaiting it and the caller's generation guard prevents
+ * stale writes if it eventually resolves.
+ *
+ * Used on operations that block UI transitions where waiting forever is
+ * worse than a fallback message — notably draftJournal on session end and
+ * the abort-button-driven cancellation path for sendMessage / playEli.
  */
-function withDeadline<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+function withDeadline<T>(
+  promise: Promise<T>,
+  ms: number,
+  label: string,
+  signal?: AbortSignal
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
+    if (signal?.aborted) {
+      const e = new Error(`${label} aborted`);
+      e.name = "AbortError";
+      reject(e);
+      return;
+    }
     const timer = setTimeout(() => {
+      cleanup();
       reject(new Error(`${label} timed out after ${ms}ms`));
     }, ms);
+    const onAbort = () => {
+      cleanup();
+      const e = new Error(`${label} aborted`);
+      e.name = "AbortError";
+      reject(e);
+    };
+    const cleanup = () => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
     promise.then(
       (v) => {
-        clearTimeout(timer);
+        cleanup();
         resolve(v);
       },
       (err) => {
-        clearTimeout(timer);
+        cleanup();
         reject(err);
       }
     );
@@ -303,7 +425,8 @@ function withDeadline<T>(promise: Promise<T>, ms: number, label: string): Promis
  */
 export async function addAudioTags(
   dialog: string,
-  emoteContext?: string
+  emoteContext?: string,
+  signal?: AbortSignal
 ): Promise<string> {
   if (!dialog.trim()) return dialog;
 
@@ -328,7 +451,8 @@ export async function addAudioTags(
       })
     ),
     15_000,
-    "addAudioTags"
+    "addAudioTags",
+    signal
   );
   return result.response.text().trim();
 }
@@ -393,7 +517,11 @@ export async function condensePersonContext(
 
 // ── condenseEmote (flash) ────────────────────────────────────────
 
-export async function condenseEmote(emoteText: string, charLimit: number): Promise<string> {
+export async function condenseEmote(
+  emoteText: string,
+  charLimit: number,
+  signal?: AbortSignal
+): Promise<string> {
   const prompt = `The following emote block is ${emoteText.length} characters and must be trimmed to under ${charLimit} characters while keeping the Tier 1 scene intact. Cut Tier 3 critical-alert material first, then Tier 2 active-texture, then compress Tier 1 language if still over budget. Return ONLY the trimmed emote text, without the _(*...*)_ wrapper.\n\n[EMOTE]\n${emoteText}`;
   // 15s — fallback path; assembleEmote already has its own 30s budget so
   // this only runs when the first call returned an over-budget emote.
@@ -402,7 +530,8 @@ export async function condenseEmote(emoteText: string, charLimit: number): Promi
       flash().generateContent({ contents: [{ role: "user", parts: [{ text: prompt }] }] })
     ),
     15_000,
-    "condenseEmote"
+    "condenseEmote",
+    signal
   );
   return result.response.text().trim();
 }
