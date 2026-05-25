@@ -30,7 +30,11 @@ const POLL_INTERVAL_MS = 15_000;
 // these are never hit. They exist as a backstop in case a future change
 // introduces an unbounded path.
 const STUCK_SEND_MS = 180_000; // 3 min — covers worst-case stack of Gemini + Kindroid
-const STUCK_GENERATING_MS = 105_000; // addAudioTags(15s) + synthesizeToFile(60s) + 30s slack
+// addAudioTags(15s) + synthesizeToFile(180s hard cap) + 30s slack. The new
+// synth wall isn't a single timer — it's a first-byte timer + per-chunk
+// stall timer + a 3-min hard cap. The watchdog only needs to cover the
+// worst case where all three legitimately accumulate.
+const STUCK_GENERATING_MS = 225_000;
 
 // Live-banner geocode cache: re-geocode only when Tim has moved >100m from
 // the last cached point. Avoids hitting the Places API every 15s while
