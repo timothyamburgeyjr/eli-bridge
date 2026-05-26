@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { View, TextInput, Pressable, Text, StyleSheet, ActivityIndicator } from "react-native";
+import { View, TextInput, Pressable, Text, StyleSheet, ActivityIndicator, Modal } from "react-native";
 import { useAudioRecorder } from "expo-audio";
 import { C } from "@/constants/theme";
 import {
@@ -10,28 +10,42 @@ import {
 import { useChat } from "@/stores/chatStore";
 
 interface Props {
-  /** Tap the 🎬 scene button (left of the input) → open CaptureModal in
-   *  scene mode. Single leading button — Tim treats "where am I / what does
-   *  Eli see" as one action, not two. */
+  /** Tap the 📍 pin → open the place-picker so Tim can attach a Save Place. */
+  onLocationTap: () => void;
+  /** Tap 🎬 Scene Capture (in the More menu) → CaptureModal in scene mode. */
   onSceneTap: () => void;
-  /** Tap 🎥 Video / 📷 Photo → open the capture modal in that mode. Video is
-   *  passed in disabled state for now (greyed). */
+  /** Tap 📷 Photo → CaptureModal in photo mode. Video is intentionally
+   *  greyed for now (no native video recording yet). */
   onPhotoTap: () => void;
   onVideoTap?: () => void;
 }
 
 /**
- * Redesigned input bar. Single row holds the location pin, the message field,
- * and a send arrow that always sits on the right (replacing the old mode-
- * dependent mic/send toggle). Below the row, three first-class capture
- * buttons — Video (greyed for now), Photo, Audio — replace the old `+`
- * attachment picker. Audio is inline tap-to-start / tap-to-stop and stages
- * the recording into the attachment tray, matching the old in-bar mic.
+ * Bottom input area. Two stacked rows:
+ *
+ *   Row 1 — message bar:
+ *     📍 location pin · text input · trailing dual-mode button
+ *
+ *   Row 2 — capture row:
+ *     🎥 Video (greyed) · 📷 Photo · ⋯ More
+ *
+ * Trailing button:
+ *   - text/attachments present → ➤ send
+ *   - empty → 🎙 voice memo (tap to start, tap to stop, stages to tray
+ *     with no popup — matching the prior in-bar mic behavior)
+ *
+ * More menu opens a small popover above the More button with the less
+ * frequently used capture options (Audio with the modal-style recorder,
+ * Scene Capture). The inline voice-memo on the trailing button remains the
+ * fast path; Audio in the menu is the secondary path for the same action,
+ * preserved so Tim can record from the bottom row if he's already aiming
+ * at the capture buttons.
  */
-export function InputBar({ onSceneTap, onPhotoTap, onVideoTap }: Props) {
+export function InputBar({ onLocationTap, onSceneTap, onPhotoTap, onVideoTap }: Props) {
   const [text, setText] = useState("");
   const [recording, setRecording] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   const recorder = useAudioRecorder(VOICE_RECORDING_PRESET);
   const recorderRef = useRef(recorder);
   recorderRef.current = recorder;
@@ -97,7 +111,7 @@ export function InputBar({ onSceneTap, onPhotoTap, onVideoTap }: Props) {
         <View style={styles.recordingBanner}>
           <View style={styles.redDot} />
           <Text style={{ fontSize: 12, color: C.red }}>
-            Recording… tap Audio to stop
+            Recording… tap the mic to stop
           </Text>
         </View>
       )}
@@ -110,10 +124,10 @@ export function InputBar({ onSceneTap, onPhotoTap, onVideoTap }: Props) {
         </Pressable>
       )}
 
-      {/* ── Message row: scene · input · send/mic ── */}
+      {/* ── Message row: location · input · send/mic ── */}
       <View style={styles.messageRow}>
-        <Pressable onPress={onSceneTap} style={styles.leadingBtn}>
-          <Text style={styles.leadingIcon}>🎬</Text>
+        <Pressable onPress={onLocationTap} style={styles.leadingBtn}>
+          <Text style={styles.leadingIcon}>📍</Text>
         </Pressable>
 
         <View style={styles.inputWrap}>
@@ -161,12 +175,11 @@ export function InputBar({ onSceneTap, onPhotoTap, onVideoTap }: Props) {
         )}
       </View>
 
-      {/* ── Capture row: Video (greyed) · Photo · Audio ── */}
+      {/* ── Capture row: Video (greyed) · Photo · ⋯ More ── */}
       <View style={styles.captureRow}>
         <Pressable
           onPress={() => onVideoTap?.()}
-          disabled={true} // Video is intentionally greyed for now —
-          //                 native recording isn't wired yet.
+          disabled={true}
           style={[styles.captureBtn, styles.captureBtnDisabled]}
           accessibilityLabel="Video (coming soon)"
         >
@@ -186,20 +199,52 @@ export function InputBar({ onSceneTap, onPhotoTap, onVideoTap }: Props) {
         </Pressable>
 
         <Pressable
-          onPress={handleAudioTap}
-          style={[styles.captureBtn, recording && styles.captureBtnRecording]}
-          accessibilityLabel={recording ? "Stop recording" : "Record audio"}
+          onPress={() => setMoreOpen(true)}
+          style={[styles.captureBtn, moreOpen && styles.captureBtnActive]}
+          accessibilityLabel="More capture options"
         >
-          {recording ? (
-            <ActivityIndicator size="small" color={C.red} style={{ marginBottom: 2 }} />
-          ) : (
-            <Text style={styles.captureIcon}>🎵</Text>
-          )}
-          <Text style={[styles.captureLabel, recording && { color: C.red }]}>
-            {recording ? "Stop" : "Audio"}
-          </Text>
+          <Text style={styles.captureIcon}>⋯</Text>
+          <Text style={styles.captureLabel}>More</Text>
         </Pressable>
       </View>
+
+      {/* ── More popup — Audio + Scene Capture ── */}
+      <Modal
+        visible={moreOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setMoreOpen(false)}
+      >
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => setMoreOpen(false)}
+        />
+        <View style={styles.morePopup} pointerEvents="box-none">
+          <View style={styles.moreMenu}>
+            <Pressable
+              onPress={() => {
+                setMoreOpen(false);
+                handleAudioTap();
+              }}
+              style={styles.moreItem}
+            >
+              <Text style={styles.moreItemIcon}>🎵</Text>
+              <Text style={styles.moreItemLabel}>Audio</Text>
+            </Pressable>
+            <View style={styles.moreDivider} />
+            <Pressable
+              onPress={() => {
+                setMoreOpen(false);
+                onSceneTap();
+              }}
+              style={styles.moreItem}
+            >
+              <Text style={styles.moreItemIcon}>🎬</Text>
+              <Text style={styles.moreItemLabel}>Scene Capture</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -217,21 +262,19 @@ const styles = StyleSheet.create({
   messageRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 10,
   },
-  // Shared style for the two leading buttons (location + scene). Same shape
-  // and accent tint so they read as a paired action group on the left.
   leadingBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     backgroundColor: C.accent + "1A",
     borderWidth: 1,
     borderColor: C.accent + "55",
     alignItems: "center",
     justifyContent: "center",
   },
-  leadingIcon: { fontSize: 18 },
+  leadingIcon: { fontSize: 20 },
 
   inputWrap: {
     flex: 1,
@@ -259,9 +302,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  // While there's nothing to send, the trailing button flips to a voice-memo
-  // mic — visually distinct from "send disabled" so it reads as an active
-  // affordance rather than a greyed-out send button.
   sendBtnMic: {
     backgroundColor: C.accent + "1A",
     borderWidth: 1,
@@ -296,14 +336,49 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   captureBtnDisabled: { opacity: 0.4 },
-  captureBtnRecording: {
-    backgroundColor: C.red + "14",
-    borderColor: C.red + "55",
+  captureBtnActive: {
+    backgroundColor: C.accent + "14",
+    borderColor: C.accent + "66",
   },
   captureIcon: { fontSize: 22, color: C.accent },
   captureIconDisabled: { color: C.muted },
   captureLabel: { fontSize: 12, color: C.text, fontWeight: "600" },
   captureLabelDisabled: { color: C.muted },
+
+  // Anchored above the bottom-right capture button. Positioned absolutely
+  // within the modal so the popup floats above the input area cleanly.
+  morePopup: {
+    position: "absolute",
+    bottom: 110,
+    right: 18,
+  },
+  moreMenu: {
+    backgroundColor: C.raised,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.accent + "55",
+    paddingVertical: 4,
+    minWidth: 180,
+    shadowColor: "#000",
+    shadowOpacity: 0.4,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 12,
+  },
+  moreItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  moreItemIcon: { fontSize: 20, color: C.accent },
+  moreItemLabel: { fontSize: 14, color: C.text, fontWeight: "600" },
+  moreDivider: {
+    height: 1,
+    backgroundColor: C.border,
+    marginHorizontal: 10,
+  },
 
   recordingBanner: {
     flexDirection: "row",

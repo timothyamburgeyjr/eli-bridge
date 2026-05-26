@@ -317,6 +317,7 @@ export default function Main() {
       <StagingTray />
 
       <InputBar
+        onLocationTap={() => setPlacePickerOpen(true)}
         onSceneTap={() => setCaptureMode("scene")}
         onPhotoTap={() => setCaptureMode("photo")}
       />
