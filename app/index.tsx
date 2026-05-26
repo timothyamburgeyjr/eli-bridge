@@ -318,6 +318,7 @@ export default function Main() {
 
       <InputBar
         onLocationTap={() => setPlacePickerOpen(true)}
+        onSceneTap={() => setCaptureMode("scene")}
         onPhotoTap={() => setCaptureMode("photo")}
       />
       </KeyboardAvoidingView>

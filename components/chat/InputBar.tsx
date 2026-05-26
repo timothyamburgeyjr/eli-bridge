@@ -12,6 +12,8 @@ import { useChat } from "@/stores/chatStore";
 interface Props {
   /** Tap the 📍 pin → open the place-picker so Tim can attach a Save Place. */
   onLocationTap: () => void;
+  /** Tap the 🎬 scene button → open CaptureModal in scene mode. */
+  onSceneTap: () => void;
   /** Tap 🎥 Video / 📷 Photo → open the capture modal in that mode. Video is
    *  passed in disabled state for now (greyed). */
   onPhotoTap: () => void;
@@ -26,7 +28,7 @@ interface Props {
  * attachment picker. Audio is inline tap-to-start / tap-to-stop and stages
  * the recording into the attachment tray, matching the old in-bar mic.
  */
-export function InputBar({ onLocationTap, onPhotoTap, onVideoTap }: Props) {
+export function InputBar({ onLocationTap, onSceneTap, onPhotoTap, onVideoTap }: Props) {
   const [text, setText] = useState("");
   const [recording, setRecording] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
@@ -108,10 +110,14 @@ export function InputBar({ onLocationTap, onPhotoTap, onVideoTap }: Props) {
         </Pressable>
       )}
 
-      {/* ── Message row: location pin · input · send ── */}
+      {/* ── Message row: location · scene · input · send/mic ── */}
       <View style={styles.messageRow}>
-        <Pressable onPress={onLocationTap} style={styles.locationBtn}>
-          <Text style={styles.locationIcon}>📍</Text>
+        <Pressable onPress={onLocationTap} style={styles.leadingBtn}>
+          <Text style={styles.leadingIcon}>📍</Text>
+        </Pressable>
+
+        <Pressable onPress={onSceneTap} style={styles.leadingBtn}>
+          <Text style={styles.leadingIcon}>🎬</Text>
         </Pressable>
 
         <View style={styles.inputWrap}>
@@ -125,21 +131,38 @@ export function InputBar({ onLocationTap, onPhotoTap, onVideoTap }: Props) {
           />
         </View>
 
-        <Pressable
-          onPress={handleSend}
-          disabled={!hasSend || sendBusy}
-          style={[
-            styles.sendBtn,
-            (!hasSend || sendBusy) && styles.sendBtnIdle,
-          ]}
-          accessibilityLabel="Send message"
-        >
-          {sendBusy ? (
-            <ActivityIndicator size="small" color="#fff" />
-          ) : (
-            <Text style={styles.sendIcon}>➤</Text>
-          )}
-        </Pressable>
+        {/* Dual-mode trailing button:
+              text/attachments present → ➤ send
+              empty → 🎙️ voice memo (tap start, tap stop, stages to tray) */}
+        {hasSend ? (
+          <Pressable
+            onPress={handleSend}
+            disabled={sendBusy}
+            style={[styles.sendBtn, sendBusy && styles.sendBtnIdle]}
+            accessibilityLabel="Send message"
+          >
+            {sendBusy ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : (
+              <Text style={styles.sendIcon}>➤</Text>
+            )}
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={handleAudioTap}
+            style={[
+              styles.sendBtn,
+              recording ? styles.sendBtnRecording : styles.sendBtnMic,
+            ]}
+            accessibilityLabel={recording ? "Stop recording" : "Record voice memo"}
+          >
+            {recording ? (
+              <ActivityIndicator size="small" color={C.red} />
+            ) : (
+              <Text style={styles.micIcon}>🎙️</Text>
+            )}
+          </Pressable>
+        )}
       </View>
 
       {/* ── Capture row: Video (greyed) · Photo · Audio ── */}
@@ -198,19 +221,21 @@ const styles = StyleSheet.create({
   messageRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 8,
   },
-  locationBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+  // Shared style for the two leading buttons (location + scene). Same shape
+  // and accent tint so they read as a paired action group on the left.
+  leadingBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: C.accent + "1A",
     borderWidth: 1,
     borderColor: C.accent + "55",
     alignItems: "center",
     justifyContent: "center",
   },
-  locationIcon: { fontSize: 20 },
+  leadingIcon: { fontSize: 18 },
 
   inputWrap: {
     flex: 1,
@@ -238,11 +263,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // While there's nothing to send, the trailing button flips to a voice-memo
+  // mic — visually distinct from "send disabled" so it reads as an active
+  // affordance rather than a greyed-out send button.
+  sendBtnMic: {
+    backgroundColor: C.accent + "1A",
+    borderWidth: 1,
+    borderColor: C.accent + "66",
+  },
+  sendBtnRecording: {
+    backgroundColor: C.red + "1A",
+    borderWidth: 1,
+    borderColor: C.red,
+  },
   sendBtnIdle: {
     backgroundColor: C.accent + "55",
     opacity: 0.6,
   },
   sendIcon: { fontSize: 18, color: "#fff", fontWeight: "700" },
+  micIcon: { fontSize: 20 },
 
   captureRow: {
     flexDirection: "row",
