@@ -1,9 +1,11 @@
 import type { SensorSnapshot, LocationData } from "@/types";
 import {
   getCurrentLocation,
-  inferActivityFromSpeed,
+  inferActivityFromMotion,
   isAtHome,
   distanceMeters,
+  recordMotionSample,
+  resetMotionBuffer,
 } from "@/services/location";
 import { getCurrentWeather } from "@/services/weather";
 import { reverseGeocode } from "@/services/places";
@@ -54,9 +56,14 @@ async function tick() {
   try {
     const loc = await getCurrentLocation();
     if (!loc) return;
+    // Feed the smoothing buffer FIRST so this tick's classification factors
+    // in the latest fix. Without this push, the windowed-speed calc would
+    // be operating on stale data and the very first "0 m/s" sample after a
+    // long drive could still flip activity to "still".
+    recordMotionSample(loc);
     const snapshot: SensorSnapshot = {
       location: loc,
-      activity: inferActivityFromSpeed(loc.speed),
+      activity: inferActivityFromMotion(loc.speed),
     };
     const drivingAutoEnabled = useSettings.getState().drivingModeAuto;
     // Run for its driving-auto side effect (banner state). Venue transitions
@@ -170,6 +177,10 @@ async function getCachedPlaceName(loc: LocationData): Promise<string | null> {
 export function startDrivingPoll() {
   if (pollTimer) return;
   bannerGeocodeCache = null;
+  // Clear any motion history from a prior session so the smoothed activity
+  // signal starts cold. Without this, the first tick of a new session could
+  // inherit "windowed speed = 30 mph" from yesterday's drive home.
+  resetMotionBuffer();
   // Fire an immediate tick so driving is detectable as soon as the session
   // begins. Subsequent ticks run on the interval.
   tick();
@@ -183,4 +194,5 @@ export function stopDrivingPoll() {
     pollTimer = null;
   }
   bannerGeocodeCache = null;
+  resetMotionBuffer();
 }

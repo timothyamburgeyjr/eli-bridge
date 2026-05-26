@@ -2,7 +2,8 @@ import type { SensorSnapshot } from "@/types";
 import {
   getCurrentLocation,
   isAtHome,
-  inferActivityFromSpeed,
+  inferActivityFromMotion,
+  recordMotionSample,
 } from "@/services/location";
 import { reverseGeocode } from "@/services/places";
 import { getCurrentWeather } from "@/services/weather";
@@ -30,9 +31,14 @@ export async function gatherSensorSnapshot(): Promise<SensorSnapshot> {
     return STUB_SENSOR_SNAPSHOT;
   }
 
+  // Feed the shared motion buffer so send-time activity benefits from the
+  // same smoothing as the background poller. Both paths converge on the
+  // same module-level buffer in services/location.ts, so a message sent
+  // while parked at a red light gets the windowed "you were driving" signal.
+  recordMotionSample(loc);
   const snapshot: SensorSnapshot = {
     location: loc,
-    activity: inferActivityFromSpeed(loc.speed),
+    activity: inferActivityFromMotion(loc.speed),
   };
 
   // Home shortcut — if within the geofence, don't burn a Places API call
