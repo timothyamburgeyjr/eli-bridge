@@ -7,6 +7,7 @@ import {
 } from "react-native";
 import { TimBubble, EliBubble } from "./MessageBubble";
 import { renderCard, AnyMsg } from "@/session/CardEngine";
+import { GeneratingResponse } from "./GeneratingResponse";
 
 export type ChatItem = AnyMsg;
 
@@ -107,6 +108,11 @@ export function ChatStream({ messages }: Props) {
       data={messages}
       keyExtractor={(m) => m.id}
       renderItem={({ item }) => <View>{renderRow(item)}</View>}
+      // GeneratingResponse sits at the bottom of the list — appears when the
+      // send pipeline is running, naturally pushed up by new messages as
+      // they land. When the chat is empty it shows up at the top, which is
+      // the correct "first send" location too.
+      ListFooterComponent={GeneratingResponse}
       onScroll={handleScroll}
       scrollEventThrottle={100}
       onContentSizeChange={handleContentSizeChange}

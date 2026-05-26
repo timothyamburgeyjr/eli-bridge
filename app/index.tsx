@@ -35,7 +35,8 @@ export default function Main() {
   const [showChat, setShowChat] = useState(false);
   const [timelineOpen, setTimelineOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [pickerOpen, setPickerOpen] = useState(false);
+  // Picker state retired: the + attachment picker was replaced by first-class
+  // Photo/Audio/Location buttons in the redesigned InputBar.
   const [captureMode, setCaptureMode] = useState<CaptureMode | null>(null);
   const [placePickerOpen, setPlacePickerOpen] = useState(false);
   const [bundleSheetOpen, setBundleSheetOpen] = useState(false);
@@ -301,19 +302,23 @@ export default function Main() {
             pressed && { opacity: 0.6 },
           ]}
         >
-          <Text style={styles.contextLabel}>
-            📡 Live context · tap to share
-            {lastEmoteChars ? `  ·  last send ${lastEmoteChars} chars` : ""}
-          </Text>
-          <Text style={styles.contextChips}>{liveContext.join("  •  ")}</Text>
+          <View style={styles.contextBadge}>
+            <Text style={styles.contextBadgeIcon}>📡</Text>
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.contextLabel}>Live context · tap to share</Text>
+            <Text style={styles.contextChips} numberOfLines={1}>
+              {liveContext.join("  •  ")}
+            </Text>
+          </View>
         </Pressable>
       )}
 
       <StagingTray />
 
       <InputBar
-        pickerOpen={pickerOpen}
-        onAttachTap={() => setPickerOpen((p) => !p)}
+        onLocationTap={() => setPlacePickerOpen(true)}
+        onPhotoTap={() => setCaptureMode("photo")}
       />
       </KeyboardAvoidingView>
 
@@ -336,18 +341,9 @@ export default function Main() {
       <DiagnosticsPanel visible={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
       <PeopleRoster visible={peopleOpen} onClose={() => setPeopleOpen(false)} />
 
-      <MediaPicker
-        visible={pickerOpen}
-        onClose={() => setPickerOpen(false)}
-        onPickMode={(m) => {
-          setPickerOpen(false);
-          setCaptureMode(m);
-        }}
-        onPickPlace={() => {
-          setPickerOpen(false);
-          setPlacePickerOpen(true);
-        }}
-      />
+      {/* MediaPicker retired — entry points are first-class buttons in the
+          InputBar now. Kept as a future re-attachment point if Scene Capture
+          gets its own entry back. */}
       <CaptureModal
         visible={captureMode !== null}
         initialMode={captureMode ?? "photo"}
@@ -502,18 +498,47 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.red + "44",
   },
+  // LIVE CONTEXT button — promoted from a low-key banner to a prominent
+  // tappable pill above the input bar. Wider padding, larger chips, and the
+  // 📡 indicator gets its own circular badge so the action-affordance reads
+  // clearly. Tapping it still fires an ambient ping (emote-only send).
   contextBanner: {
-    marginHorizontal: 14,
-    marginBottom: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginHorizontal: 12,
+    marginBottom: 8,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 10,
+    paddingVertical: 12,
+    borderRadius: 14,
     backgroundColor: C.raised,
     borderWidth: 1,
-    borderColor: C.border,
+    borderColor: C.accent + "33",
   },
-  contextLabel: { color: C.muted, fontSize: 9, textTransform: "uppercase", letterSpacing: 1 },
-  contextChips: { color: C.textDim, fontSize: 11, marginTop: 2 },
+  contextBadge: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: C.accent + "22",
+    borderWidth: 1,
+    borderColor: C.accent + "55",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  contextBadgeIcon: { fontSize: 14 },
+  contextLabel: {
+    color: C.accent,
+    fontSize: 10,
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: 1,
+  },
+  contextChips: {
+    color: C.text,
+    fontSize: 13,
+    marginTop: 2,
+    fontWeight: "500",
+  },
   bundlePill: {
     marginHorizontal: 14,
     marginBottom: 6,

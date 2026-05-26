@@ -10,11 +10,23 @@ import {
 import { useChat } from "@/stores/chatStore";
 
 interface Props {
-  onAttachTap: () => void;
-  pickerOpen?: boolean;
+  /** Tap the 📍 pin → open the place-picker so Tim can attach a Save Place. */
+  onLocationTap: () => void;
+  /** Tap 🎥 Video / 📷 Photo → open the capture modal in that mode. Video is
+   *  passed in disabled state for now (greyed). */
+  onPhotoTap: () => void;
+  onVideoTap?: () => void;
 }
 
-export function InputBar({ onAttachTap, pickerOpen }: Props) {
+/**
+ * Redesigned input bar. Single row holds the location pin, the message field,
+ * and a send arrow that always sits on the right (replacing the old mode-
+ * dependent mic/send toggle). Below the row, three first-class capture
+ * buttons — Video (greyed for now), Photo, Audio — replace the old `+`
+ * attachment picker. Audio is inline tap-to-start / tap-to-stop and stages
+ * the recording into the attachment tray, matching the old in-bar mic.
+ */
+export function InputBar({ onLocationTap, onPhotoTap, onVideoTap }: Props) {
   const [text, setText] = useState("");
   const [recording, setRecording] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
@@ -41,9 +53,8 @@ export function InputBar({ onAttachTap, pickerOpen }: Props) {
     await sendMessage(t);
   };
 
-  const handleMicTap = async () => {
+  const handleAudioTap = async () => {
     if (recording) {
-      // Stop recording and stage the audio file
       try {
         await recorderRef.current.stop();
         const uri = recorderRef.current.uri;
@@ -63,7 +74,6 @@ export function InputBar({ onAttachTap, pickerOpen }: Props) {
       return;
     }
 
-    // Start recording
     const granted = await ensureRecordingPermission();
     if (!granted) {
       setPermissionError("Mic permission denied. Enable in Android Settings → Apps → Eli Bridge → Permissions.");
@@ -84,7 +94,9 @@ export function InputBar({ onAttachTap, pickerOpen }: Props) {
       {recording && (
         <View style={styles.recordingBanner}>
           <View style={styles.redDot} />
-          <Text style={{ fontSize: 12, color: C.red }}>Recording… tap 🎙️ to stop</Text>
+          <Text style={{ fontSize: 12, color: C.red }}>
+            Recording… tap Audio to stop
+          </Text>
         </View>
       )}
       {permissionError && (
@@ -95,64 +107,79 @@ export function InputBar({ onAttachTap, pickerOpen }: Props) {
           </View>
         </Pressable>
       )}
-      <View style={styles.bar}>
-        <Pressable
-          onPress={onAttachTap}
-          style={[
-            styles.circleBtn,
-            {
-              backgroundColor: pickerOpen ? C.accentDim : "transparent",
-              borderColor: pickerOpen ? C.accent : C.border,
-            },
-          ]}
-        >
-          <Text style={{ fontSize: 20, color: pickerOpen ? C.accent : C.textDim, fontWeight: "300" }}>+</Text>
+
+      {/* ── Message row: location pin · input · send ── */}
+      <View style={styles.messageRow}>
+        <Pressable onPress={onLocationTap} style={styles.locationBtn}>
+          <Text style={styles.locationIcon}>📍</Text>
         </Pressable>
-        <TextInput
-          value={text}
-          onChangeText={setText}
-          placeholder="Message Eli…"
-          placeholderTextColor={C.muted}
-          multiline
-          style={styles.input}
-        />
-        {hasSend ? (
-          <Pressable
-            onPress={handleSend}
-            disabled={sendBusy}
-            style={[
-              styles.sendBtn,
-              {
-                backgroundColor: sendBusy ? C.muted : C.accent,
-                opacity: sendBusy ? 0.55 : 1,
-              },
-            ]}
-          >
-            {sendBusy ? (
-              <ActivityIndicator size="small" color="#fff" />
-            ) : (
-              <Text style={{ fontSize: 18, color: "#fff" }}>↑</Text>
-            )}
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={handleMicTap}
-            style={[
-              styles.sendBtn,
-              {
-                backgroundColor: recording ? C.red + "22" : "transparent",
-                borderWidth: 1.5,
-                borderColor: recording ? C.red : C.border,
-              },
-            ]}
-          >
-            {recording ? (
-              <ActivityIndicator size="small" color={C.red} />
-            ) : (
-              <Text style={{ fontSize: 18 }}>🎙️</Text>
-            )}
-          </Pressable>
-        )}
+
+        <View style={styles.inputWrap}>
+          <TextInput
+            value={text}
+            onChangeText={setText}
+            placeholder="Message Eli…"
+            placeholderTextColor={C.muted}
+            multiline
+            style={styles.input}
+          />
+        </View>
+
+        <Pressable
+          onPress={handleSend}
+          disabled={!hasSend || sendBusy}
+          style={[
+            styles.sendBtn,
+            (!hasSend || sendBusy) && styles.sendBtnIdle,
+          ]}
+          accessibilityLabel="Send message"
+        >
+          {sendBusy ? (
+            <ActivityIndicator size="small" color="#fff" />
+          ) : (
+            <Text style={styles.sendIcon}>➤</Text>
+          )}
+        </Pressable>
+      </View>
+
+      {/* ── Capture row: Video (greyed) · Photo · Audio ── */}
+      <View style={styles.captureRow}>
+        <Pressable
+          onPress={() => onVideoTap?.()}
+          disabled={true} // Video is intentionally greyed for now —
+          //                 native recording isn't wired yet.
+          style={[styles.captureBtn, styles.captureBtnDisabled]}
+          accessibilityLabel="Video (coming soon)"
+        >
+          <Text style={[styles.captureIcon, styles.captureIconDisabled]}>🎥</Text>
+          <Text style={[styles.captureLabel, styles.captureLabelDisabled]}>
+            Video
+          </Text>
+        </Pressable>
+
+        <Pressable
+          onPress={onPhotoTap}
+          style={styles.captureBtn}
+          accessibilityLabel="Take photo"
+        >
+          <Text style={styles.captureIcon}>📷</Text>
+          <Text style={styles.captureLabel}>Photo</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={handleAudioTap}
+          style={[styles.captureBtn, recording && styles.captureBtnRecording]}
+          accessibilityLabel={recording ? "Stop recording" : "Record audio"}
+        >
+          {recording ? (
+            <ActivityIndicator size="small" color={C.red} style={{ marginBottom: 2 }} />
+          ) : (
+            <Text style={styles.captureIcon}>🎵</Text>
+          )}
+          <Text style={[styles.captureLabel, recording && { color: C.red }]}>
+            {recording ? "Stop" : "Audio"}
+          </Text>
+        </Pressable>
       </View>
     </View>
   );
@@ -160,47 +187,89 @@ export function InputBar({ onAttachTap, pickerOpen }: Props) {
 
 const styles = StyleSheet.create({
   wrap: {
-    paddingHorizontal: 14,
-    paddingTop: 10,
-    paddingBottom: 24,
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 18,
     backgroundColor: C.bg,
     borderTopWidth: 1,
     borderTopColor: C.border,
   },
-  bar: {
+
+  messageRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  locationBtn: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: C.accent + "1A",
+    borderWidth: 1,
+    borderColor: C.accent + "55",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  locationIcon: { fontSize: 20 },
+
+  inputWrap: {
+    flex: 1,
     backgroundColor: C.raised,
     borderColor: C.border,
     borderWidth: 1,
-    borderRadius: 28,
-    paddingLeft: 14,
-    paddingRight: 6,
-    paddingVertical: 6,
-  },
-  circleBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    borderWidth: 1.5,
-    alignItems: "center",
+    borderRadius: 24,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    minHeight: 46,
     justifyContent: "center",
   },
   input: {
-    flex: 1,
     color: C.text,
-    fontSize: 16,
+    fontSize: 15,
     maxHeight: 100,
     paddingVertical: 4,
   },
+
   sendBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    backgroundColor: C.accent,
     alignItems: "center",
     justifyContent: "center",
   },
+  sendBtnIdle: {
+    backgroundColor: C.accent + "55",
+    opacity: 0.6,
+  },
+  sendIcon: { fontSize: 18, color: "#fff", fontWeight: "700" },
+
+  captureRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 10,
+  },
+  captureBtn: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    backgroundColor: C.raised,
+    borderColor: C.border,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  captureBtnDisabled: { opacity: 0.4 },
+  captureBtnRecording: {
+    backgroundColor: C.red + "14",
+    borderColor: C.red + "55",
+  },
+  captureIcon: { fontSize: 22, color: C.accent },
+  captureIconDisabled: { color: C.muted },
+  captureLabel: { fontSize: 12, color: C.text, fontWeight: "600" },
+  captureLabelDisabled: { color: C.muted },
+
   recordingBanner: {
     flexDirection: "row",
     alignItems: "center",

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { View, Text, Pressable, StyleSheet, Modal } from "react-native";
+import React from "react";
+import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
 import { EliAvatar } from "@/components/common/EliAvatar";
 import { StatusIndicator } from "@/components/common/StatusIndicator";
@@ -11,29 +11,46 @@ import { useRecovery } from "@/stores/recoveryStore";
 import { abortPipeline } from "@/session/abortPipeline";
 
 interface Props {
+  /** True when there's an active session (status === "active"). Drives the
+   *  Start/End toggle on the right action button and enables Conversation
+   *  Mode tap. */
   connected: boolean;
+  /** Tap handler for the Start (when disconnected) or End (when connected)
+   *  button — wired in app/index.tsx to start/end the session. */
   onTogglePress: () => void;
+  /** Hamburger tap → open SessionTimeline. */
   onTimelinePress: () => void;
+  /** Settings gear tap → open SettingsPanel. */
   onSettingsPress: () => void;
 }
 
+/**
+ * Redesigned header. Top strip holds the hamburger, the Eli avatar with title
+ * + connection status, and the Abort pill (top-right, dimmed when nothing is
+ * in flight). Below that, a row of three large tap targets: Conversation Mode
+ * (disabled until a session is active), Settings, and Start/End — the last
+ * being context-dependent (green Start when idle, red End when connected).
+ *
+ * Conversation Mode is the renamed Drive Mode — same overlay, same auto-
+ * activation on sustained IN_VEHICLE, just the user-facing label and code
+ * identifiers have shifted.
+ */
 export function SessionHeader({
   connected,
   onTogglePress,
   onTimelinePress,
   onSettingsPress,
 }: Props) {
-  const driving = useMode((s) => s.driving);
-  const enterDrivingManual = useMode((s) => s.enterDrivingManual);
-  const exitDriving = useMode((s) => s.exitDriving);
-  const toggleDriving = () => {
-    if (driving) exitDriving();
-    else enterDrivingManual();
+  const conversation = useMode((s) => s.conversation);
+  const enterConversationManual = useMode((s) => s.enterConversationManual);
+  const exitConversation = useMode((s) => s.exitConversation);
+  const toggleConversation = () => {
+    if (!connected) return; // greyed-out — tapping is a no-op
+    if (conversation) exitConversation();
+    else enterConversationManual();
   };
 
-  // Connection awareness — a connected session on a degraded network
-  // shows amber + "Offline · N queued" to signal that sends are queuing
-  // rather than failing silently.
+  // ── Connection / queue chips ─────────────────────────────────────
   const netState = useConnection((s) => s.state);
   const queuedCount = useChat((s) => s.offlineQueue.length);
   const offline = netState === "offline";
@@ -50,10 +67,9 @@ export function SessionHeader({
       : "Offline"
     : "Connected";
 
-  // ── Abort-button visibility ───────────────────────────────────────
-  // The ⏹ button appears whenever the pipeline has something to tear down.
-  // Subscribes individually so any of these flipping back to "idle" re-renders
-  // the header and the button disappears the moment there's nothing to abort.
+  // ── Abort visibility ─────────────────────────────────────────────
+  // Pill always rendered at the top-right; opacity drops when there's nothing
+  // to abort so it stays present (no layout jump) but visually quiet.
   const chatStatus = useChat((s) => s.status);
   const sceneStatus = useChat((s) => s.sceneStatus);
   const audioCurrentId = useAudio((s) => s.currentMessageId);
@@ -61,7 +77,7 @@ export function SessionHeader({
     s.currentMessageId ? s.cache[s.currentMessageId]?.status : undefined
   );
   const recoveryFailure = useRecovery((s) => s.failure);
-  const showAbort =
+  const abortActive =
     chatStatus === "assembling" ||
     chatStatus === "sending" ||
     sceneStatus === "analyzing" ||
@@ -69,12 +85,11 @@ export function SessionHeader({
       (audioEntryStatus === "generating" || audioEntryStatus === "playing")) ||
     recoveryFailure !== null;
 
-  const [modeMenuOpen, setModeMenuOpen] = useState(false);
-
   return (
     <View>
-      <View style={styles.row}>
-        <Pressable onPress={onTimelinePress} style={styles.menuBtn}>
+      {/* ── Top strip: hamburger · avatar+title · abort pill ── */}
+      <View style={styles.topStrip}>
+        <Pressable onPress={onTimelinePress} style={styles.hamburgerBtn}>
           {[0, 1, 2].map((i) => (
             <View
               key={i}
@@ -89,10 +104,10 @@ export function SessionHeader({
           ))}
         </Pressable>
 
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <EliAvatar size={26} fontSize={11} />
+        <View style={styles.titleBlock}>
+          <EliAvatar size={32} fontSize={13} />
           <View>
-            <Text style={{ fontSize: 15, fontWeight: "700", color: C.text }}>Eli's Bridge</Text>
+            <Text style={styles.title}>Eli&apos;s Bridge</Text>
             <Pressable
               onPress={() => useConnection.getState().refresh()}
               hitSlop={6}
@@ -103,178 +118,149 @@ export function SessionHeader({
           </View>
         </View>
 
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          {connected && (
-            <Pressable
-              onPress={toggleDriving}
-              style={[
-                styles.iconBtn,
-                driving && {
-                  backgroundColor: C.accent + "22",
-                  borderColor: C.accent + "66",
-                },
-              ]}
-              accessibilityLabel={driving ? "Exit Driving Mode" : "Enter Driving Mode"}
-            >
-              <Text style={{ fontSize: 16, color: driving ? C.accent : C.textDim }}>
-                🚗
-              </Text>
-            </Pressable>
-          )}
-          <Pressable onPress={onSettingsPress} style={styles.iconBtn}>
-            <Text style={{ fontSize: 16, color: C.textDim }}>⚙︎</Text>
-          </Pressable>
-          {showAbort && (
-            <Pressable
-              onPress={() => abortPipeline("header-button")}
-              style={[
-                styles.iconBtn,
-                {
-                  backgroundColor: C.red + "22",
-                  borderColor: C.red + "66",
-                },
-              ]}
-              accessibilityLabel="Abort current operation"
-            >
-              <Text style={{ fontSize: 14, color: C.red, fontWeight: "700" }}>
-                ⏹
-              </Text>
-            </Pressable>
-          )}
-          <Pressable
-            onPress={onTogglePress}
-            style={[
-              styles.connectBtn,
-              {
-                backgroundColor: connected ? C.red + "18" : C.green + "18",
-                borderColor: connected ? C.red + "55" : C.green + "55",
-              },
-            ]}
-          >
-            <Text style={{ color: connected ? C.red : C.green, fontSize: 12, fontWeight: "600" }}>
-              {connected ? "End" : "Connect"}
-            </Text>
-          </Pressable>
-        </View>
-      </View>
-
-      {/* Mode selector — single option for now, placeholder for v2 modes
-          (Movie Mode, etc.). Compact pill so it doesn't dominate the header. */}
-      <View style={styles.modeRow}>
         <Pressable
-          onPress={() => setModeMenuOpen(true)}
-          style={styles.modeChip}
-          accessibilityLabel="Select mode"
+          onPress={() => {
+            if (!abortActive) return;
+            abortPipeline("header-abort");
+          }}
+          accessibilityLabel="Abort current operation"
+          style={[
+            styles.abortPill,
+            { opacity: abortActive ? 1 : 0.35 },
+          ]}
         >
-          <Text style={styles.modeChipText}>Session</Text>
-          <Text style={styles.modeChipChevron}>▾</Text>
+          <Text style={styles.abortIcon}>⏹</Text>
+          <Text style={styles.abortText}>Abort</Text>
         </Pressable>
       </View>
 
-      <Modal
-        visible={modeMenuOpen}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setModeMenuOpen(false)}
-      >
+      {/* ── Action row: Conversation Mode · Settings · Start/End ── */}
+      <View style={styles.actionRow}>
         <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={() => setModeMenuOpen(false)}
-        />
-        <View style={styles.modeMenu}>
-          <View style={styles.modeMenuItem}>
-            <Text style={styles.modeMenuItemLabel}>Session</Text>
-            <Text style={styles.modeMenuCheck}>✓</Text>
-          </View>
-          <View style={styles.modeMenuDivider} />
-          <Text style={styles.modeMenuSoon}>More modes coming soon</Text>
-        </View>
-      </Modal>
+          onPress={toggleConversation}
+          disabled={!connected}
+          style={[
+            styles.actionBtn,
+            !connected && styles.actionBtnDisabled,
+            conversation && styles.actionBtnActive,
+          ]}
+          accessibilityLabel={
+            conversation ? "Exit Conversation Mode" : "Enter Conversation Mode"
+          }
+        >
+          <Text style={[styles.actionIcon, conversation && { color: C.accent }]}>
+            🎙
+          </Text>
+          <Text style={[styles.actionLabel, conversation && { color: C.accent }]}>
+            Conversation{"\n"}Mode
+          </Text>
+        </Pressable>
+
+        <Pressable onPress={onSettingsPress} style={styles.actionBtn}>
+          <Text style={styles.actionIcon}>⚙</Text>
+          <Text style={styles.actionLabel}>Settings</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={onTogglePress}
+          style={[
+            styles.actionBtn,
+            connected ? styles.actionBtnEnd : styles.actionBtnStart,
+          ]}
+          accessibilityLabel={connected ? "End session" : "Start session"}
+        >
+          <Text
+            style={[
+              styles.actionIcon,
+              { color: connected ? C.red : C.green },
+            ]}
+          >
+            {connected ? "📞" : "▶"}
+          </Text>
+          <Text
+            style={[
+              styles.actionLabel,
+              { color: connected ? C.red : C.green, fontWeight: "700" },
+            ]}
+          >
+            {connected ? "End" : "Start"}
+          </Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  row: {
+  topStrip: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
     paddingTop: 12,
     paddingBottom: 10,
+    gap: 10,
   },
-  menuBtn: { padding: 4 },
-  iconBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    backgroundColor: C.raised,
-    borderWidth: 1,
-    borderColor: C.border,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  connectBtn: {
-    height: 34,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  modeRow: {
-    alignItems: "center",
-    paddingBottom: 8,
-  },
-  modeChip: {
+  hamburgerBtn: { padding: 4 },
+  titleBlock: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 14,
-    backgroundColor: C.raised,
-    borderWidth: 1,
-    borderColor: C.border,
+    gap: 10,
   },
-  modeChipText: { color: C.text, fontSize: 12, fontWeight: "600" },
-  modeChipChevron: { color: C.muted, fontSize: 10 },
-  modeMenu: {
-    position: "absolute",
-    top: 88,
-    alignSelf: "center",
-    minWidth: 200,
-    backgroundColor: C.raised,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: C.border,
-    paddingVertical: 6,
-    shadowColor: "#000",
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 10,
-  },
-  modeMenuItem: {
+  title: { fontSize: 16, fontWeight: "700", color: C.text },
+  abortPill: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-  },
-  modeMenuItemLabel: { color: C.text, fontSize: 13, fontWeight: "600" },
-  modeMenuCheck: { color: C.accent, fontSize: 13 },
-  modeMenuDivider: {
-    height: 1,
-    backgroundColor: C.border,
-    marginHorizontal: 10,
-    marginVertical: 2,
-  },
-  modeMenuSoon: {
-    color: C.muted,
-    fontSize: 11,
-    fontStyle: "italic",
-    paddingHorizontal: 14,
+    gap: 6,
+    paddingHorizontal: 12,
     paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    backgroundColor: C.amber + "1A",
+    borderColor: C.amber + "66",
+  },
+  abortIcon: { fontSize: 14, color: C.amber },
+  abortText: { fontSize: 13, fontWeight: "700", color: C.amber },
+  actionRow: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    gap: 10,
+  },
+  actionBtn: {
+    flex: 1,
+    aspectRatio: 1.1,
+    minHeight: 76,
+    backgroundColor: C.raised,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+  },
+  actionBtnDisabled: { opacity: 0.4 },
+  actionBtnActive: {
+    backgroundColor: C.accent + "1A",
+    borderColor: C.accent + "66",
+  },
+  actionBtnStart: {
+    backgroundColor: C.green + "1A",
+    borderColor: C.green + "66",
+  },
+  actionBtnEnd: {
+    backgroundColor: C.red + "1A",
+    borderColor: C.red + "66",
+  },
+  actionIcon: { fontSize: 26, color: C.textDim },
+  actionLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: C.textDim,
+    textAlign: "center",
+    lineHeight: 14,
   },
 });
