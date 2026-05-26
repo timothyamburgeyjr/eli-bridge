@@ -10,9 +10,9 @@ import {
 import { useChat } from "@/stores/chatStore";
 
 interface Props {
-  /** Tap the 📍 pin → open the place-picker so Tim can attach a Save Place. */
-  onLocationTap: () => void;
-  /** Tap the 🎬 scene button → open CaptureModal in scene mode. */
+  /** Tap the 🎬 scene button (left of the input) → open CaptureModal in
+   *  scene mode. Single leading button — Tim treats "where am I / what does
+   *  Eli see" as one action, not two. */
   onSceneTap: () => void;
   /** Tap 🎥 Video / 📷 Photo → open the capture modal in that mode. Video is
    *  passed in disabled state for now (greyed). */
@@ -28,7 +28,7 @@ interface Props {
  * attachment picker. Audio is inline tap-to-start / tap-to-stop and stages
  * the recording into the attachment tray, matching the old in-bar mic.
  */
-export function InputBar({ onLocationTap, onSceneTap, onPhotoTap, onVideoTap }: Props) {
+export function InputBar({ onSceneTap, onPhotoTap, onVideoTap }: Props) {
   const [text, setText] = useState("");
   const [recording, setRecording] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
@@ -110,12 +110,8 @@ export function InputBar({ onLocationTap, onSceneTap, onPhotoTap, onVideoTap }: 
         </Pressable>
       )}
 
-      {/* ── Message row: location · scene · input · send/mic ── */}
+      {/* ── Message row: scene · input · send/mic ── */}
       <View style={styles.messageRow}>
-        <Pressable onPress={onLocationTap} style={styles.leadingBtn}>
-          <Text style={styles.leadingIcon}>📍</Text>
-        </Pressable>
-
         <Pressable onPress={onSceneTap} style={styles.leadingBtn}>
           <Text style={styles.leadingIcon}>🎬</Text>
         </Pressable>
