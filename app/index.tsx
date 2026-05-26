@@ -125,12 +125,9 @@ export default function Main() {
     if (source === "live" && liveMessages.length > 0 && !showChat) setShowChat(true);
   }, [liveMessages.length, source, showChat]);
 
-  const demoStats = activeScenario?.stats ?? [
-    { value: String(liveMessages.length), label: "Messages" },
-    { value: lastEmoteChars ? `${lastEmoteChars}` : "—", label: "Last emote (chars)" },
-    { value: status === "assembling" ? "…" : "✓", label: "Gemini" },
-  ];
-  const demoTimeline = activeScenario?.timeline ?? [];
+  // Demo-scenario timeline/stats were removed — SessionTimeline now pulls
+  // exclusively from useTimeline (the live event log). The component takes
+  // no entries/stats props anymore; demo scenarios just affect the chat.
 
   return (
     <SafeAreaView style={styles.root} edges={["top", "bottom", "left", "right"]}>
@@ -322,8 +319,6 @@ export default function Main() {
 
       <SessionTimeline
         visible={timelineOpen}
-        entries={demoTimeline}
-        stats={demoStats}
         onClose={() => setTimelineOpen(false)}
       />
       <SettingsPanel

@@ -13,6 +13,7 @@ import { useMode } from "@/stores/modeStore";
 import { useSettings } from "@/stores/settingsStore";
 import { useChat } from "@/stores/chatStore";
 import { useAudio } from "@/stores/audioStore";
+import { useTimeline } from "@/stores/timelineStore";
 
 /**
  * Background poller. One GPS fix every POLL_INTERVAL_MS, fed into:
@@ -46,6 +47,13 @@ let bannerGeocodeCache: {
   fix: { lat: number; lon: number };
   placeName: string | null;
 } | null = null;
+
+// Timeline-event location dedupe: the live banner re-geocodes once every
+// 100m of movement, which is way too chatty for the timeline (every 100m
+// drive segment would be an entry). Track the last LOGGED place name +
+// home-state separately so we only emit a timeline event when the resolved
+// place actually changes — e.g. "Home → Lynchburg OH" or "Hillsboro → DC".
+let lastLoggedPlace: string | null = null;
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let pollInFlight = false;
@@ -117,13 +125,17 @@ async function updateLiveContext(
 ): Promise<void> {
   const chips: string[] = [];
 
-  // Location chip
+  // Location chip + timeline event on place change
   if (isAtHome({ latitude: loc.latitude, longitude: loc.longitude })) {
     chips.push("📍 Home");
     bannerGeocodeCache = null; // reset cache so leaving home re-geocodes promptly
+    logLocationIfChanged(loc, "Home");
   } else {
     const placeName = await getCachedPlaceName(loc);
-    if (placeName) chips.push(`📍 ${placeName}`);
+    if (placeName) {
+      chips.push(`📍 ${placeName}`);
+      logLocationIfChanged(loc, placeName);
+    }
   }
 
   // Weather chip — service caches 5min/500m, near-free to call repeatedly
@@ -167,6 +179,23 @@ async function getCachedPlaceName(loc: LocationData): Promise<string | null> {
   return placeName;
 }
 
+/** Emit a timeline event when the resolved place actually changed since
+ *  the last logged one. Home <-> Away is treated as a place change. */
+function logLocationIfChanged(loc: LocationData, placeLabel: string): void {
+  if (placeLabel === lastLoggedPlace) return;
+  const detail = `${loc.latitude.toFixed(4)}, ${loc.longitude.toFixed(4)} (±${Math.round(loc.accuracy)}m)`;
+  useTimeline.getState().append({
+    kind: "location",
+    icon: "📍",
+    label: lastLoggedPlace
+      ? `${lastLoggedPlace} → ${placeLabel}`
+      : placeLabel,
+    detail,
+    meta: { lat: loc.latitude, lon: loc.longitude, accuracy: loc.accuracy },
+  });
+  lastLoggedPlace = placeLabel;
+}
+
 /**
  * Begin background polling for driving-mode auto-detection. Called from
  * SessionStore.start so the polling lifecycle tracks session lifecycle
@@ -177,6 +206,7 @@ async function getCachedPlaceName(loc: LocationData): Promise<string | null> {
 export function startDrivingPoll() {
   if (pollTimer) return;
   bannerGeocodeCache = null;
+  lastLoggedPlace = null;
   // Clear any motion history from a prior session so the smoothed activity
   // signal starts cold. Without this, the first tick of a new session could
   // inherit "windowed speed = 30 mph" from yesterday's drive home.
@@ -194,5 +224,6 @@ export function stopDrivingPoll() {
     pollTimer = null;
   }
   bannerGeocodeCache = null;
+  lastLoggedPlace = null;
   resetMotionBuffer();
 }

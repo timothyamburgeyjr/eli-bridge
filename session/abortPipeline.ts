@@ -25,6 +25,7 @@
 import { useChat } from "@/stores/chatStore";
 import { useAudio } from "@/stores/audioStore";
 import { useRecovery } from "@/stores/recoveryStore";
+import { useTimeline } from "@/stores/timelineStore";
 import { tripAbortBus } from "./abortBus";
 import type { ChatItem } from "@/components/chat/ChatStream";
 
@@ -96,6 +97,15 @@ export function abortPipeline(reason = "user-aborted"): void {
   // continuations stored there belong to the now-aborted pipeline run;
   // running them after abort would resurrect what we just killed.
   useRecovery.getState().clear();
+
+  // 5. Log to the timeline so the diagnostic export has a marker for
+  // every user-initiated abort.
+  useTimeline.getState().append({
+    kind: "abort",
+    icon: "⏹",
+    label: "Pipeline aborted by user",
+    detail: reason,
+  });
 }
 
 /**

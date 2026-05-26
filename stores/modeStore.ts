@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { SensorSnapshot } from "@/types";
+import { useTimeline } from "@/stores/timelineStore";
 
 export interface VenueBoundary {
   /** Center coordinates of the venue. */
@@ -134,6 +135,11 @@ export const useMode = create<ModeState>((set, get) => ({
       drivingPendingSince: null,
       nonCarStreak: 0,
     });
+    useTimeline.getState().append({
+      kind: "drive-enter",
+      icon: "🚗",
+      label: "Drive Mode entered (manual)",
+    });
   },
 
   beginDrivingAuto: () => {
@@ -151,6 +157,11 @@ export const useMode = create<ModeState>((set, get) => ({
       drivingPendingSince: null,
       nonCarStreak: 0,
     });
+    useTimeline.getState().append({
+      kind: "drive-enter",
+      icon: "🚗",
+      label: "Drive Mode entered (auto)",
+    });
   },
 
   cancelDrivingAuto: () => {
@@ -158,13 +169,21 @@ export const useMode = create<ModeState>((set, get) => ({
   },
 
   exitDriving: () => {
-    if (!get().driving && !get().drivingPendingSince) return;
+    const was = get().driving;
+    if (!was && !get().drivingPendingSince) return;
     set({
       driving: false,
       drivingSource: null,
       drivingPendingSince: null,
       nonCarStreak: 0,
     });
+    if (was) {
+      useTimeline.getState().append({
+        kind: "drive-exit",
+        icon: "🛑",
+        label: "Drive Mode exited",
+      });
+    }
   },
 
   enterVenue: (boundary) => {
@@ -240,6 +259,11 @@ export const useMode = create<ModeState>((set, get) => ({
             nonCarStreak: 0,
           });
           transitions.drivingAutoBanner = { name: "exited" };
+          useTimeline.getState().append({
+            kind: "drive-exit",
+            icon: "🛑",
+            label: "Drive Mode exited (auto · sustained non-car)",
+          });
         } else {
           set({ nonCarStreak: next });
         }

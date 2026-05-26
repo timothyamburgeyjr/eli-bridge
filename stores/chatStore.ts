@@ -24,6 +24,7 @@ import { useMode } from "@/stores/modeStore";
 import { useSettings } from "@/stores/settingsStore";
 import { isOffline, useConnection } from "@/stores/connectionStore";
 import { useRecovery } from "@/stores/recoveryStore";
+import { useTimeline } from "@/stores/timelineStore";
 import { persistQueue, hydrateQueue } from "@/session/queuePersistence";
 import {
   currentAbortSignal,
@@ -224,6 +225,10 @@ interface ChatState {
 }
 
 const assembler = new EmoteAssembler();
+
+function capitalize(s: string): string {
+  return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1);
+}
 
 function timeString(d: Date = new Date()): string {
   const h = d.getHours();
@@ -427,10 +432,24 @@ export const useChat = create<ChatState>((set, get) => ({
     });
   },
 
-  addAttachment: (a) =>
+  addAttachment: (a) => {
     set((s) => ({
       pending: [...s.pending, { ...a, id: newAttachmentId(a.kind) }],
-    })),
+    }));
+    const iconByKind: Record<string, string> = {
+      image: "📸",
+      audio: "🎙️",
+      video: "🎬",
+      file: "📎",
+    };
+    useTimeline.getState().append({
+      kind: "attachment-staged",
+      icon: iconByKind[a.kind] ?? "📎",
+      label: `${capitalize(a.kind)} attachment staged`,
+      detail: a.localPath.split(/[\\/]/).pop(),
+      meta: { kind: a.kind, mimeType: a.mimeType, duration: a.duration },
+    });
+  },
 
   removeAttachment: (id) =>
     set((s) => ({ pending: s.pending.filter((a) => a.id !== id) })),
@@ -455,6 +474,12 @@ export const useChat = create<ChatState>((set, get) => ({
       placeStatus: "pending",
     } as unknown as ChatItem;
     set((s) => ({ messages: [...s.messages, card] }));
+    useTimeline.getState().append({
+      kind: "saved-place",
+      icon: "📌",
+      label: `Saved place: ${place.name}`,
+      detail: place.category || place.address,
+    });
   },
 
   markPlaceSavedForBundle: (cardId) => {
@@ -493,6 +518,11 @@ export const useChat = create<ChatState>((set, get) => ({
           : m
       ),
     }));
+    useTimeline.getState().append({
+      kind: "brief-sent",
+      icon: "📣",
+      label: `Briefed Eli: ${card.name}`,
+    });
   },
 
   briefAllSavedPlaces: async (optionalNote) => {
@@ -538,6 +568,12 @@ export const useChat = create<ChatState>((set, get) => ({
       note: optionalNote,
     } as unknown as ChatItem;
     set((s) => ({ messages: [...s.messages, summaryCard] }));
+    useTimeline.getState().append({
+      kind: "brief-sent",
+      icon: "📣",
+      label: `Bundled brief sent (${savedCards.length} place${savedCards.length === 1 ? "" : "s"})`,
+      detail: optionalNote,
+    });
   },
 
   clear: () => {
@@ -986,6 +1022,28 @@ export const useChat = create<ChatState>((set, get) => ({
         });
         // Success — clear any recovery popup state from a prior retry.
         useRecovery.getState().clear();
+
+        useTimeline.getState().append({
+          kind: "message-sent",
+          icon: "📤",
+          label: ambientPing
+            ? "Ambient ping sent"
+            : text
+            ? "Message sent"
+            : "Audio message sent",
+          detail:
+            attachments.length > 0
+              ? `${attachments.length} attachment${attachments.length === 1 ? "" : "s"}`
+              : undefined,
+        });
+        useTimeline.getState().append({
+          kind: "eli-replied",
+          icon: "💬",
+          label: "Eli replied",
+          detail: eliParsed.body
+            ? eliParsed.body.slice(0, 80) + (eliParsed.body.length > 80 ? "…" : "")
+            : undefined,
+        });
       };
 
       await deliverToKindroid();
@@ -1029,11 +1087,25 @@ export const useChat = create<ChatState>((set, get) => ({
           };
         });
         console.warn("[chatStore] transient send error, queued for retry:", msg);
+        useTimeline.getState().append({
+          kind: "message-queued",
+          icon: "⏳",
+          label: "Send queued (transient error)",
+          detail: msg,
+          meta: { error: msg },
+        });
       } else {
         set({
           status: "error",
           errorMessage: msg,
           sendStartedAt: null,
+        });
+        useTimeline.getState().append({
+          kind: "error",
+          icon: "⚠",
+          label: "Send failed",
+          detail: msg,
+          meta: { error: msg, phase: "send" },
         });
       }
     }
@@ -1244,10 +1316,23 @@ export const useChat = create<ChatState>((set, get) => ({
         sceneError: null,
         messages: [...s.messages, sceneCardMsg],
       }));
+      useTimeline.getState().append({
+        kind: "scene-captured",
+        icon: "🎬",
+        label: `Scene captured (${photoPaths.length} photo${photoPaths.length === 1 ? "" : "s"})`,
+        detail: note || richScene.slice(0, 80) + (richScene.length > 80 ? "…" : ""),
+      });
     } catch (err) {
       if (isStaleGeneration(myGen)) return;
       const msg = err instanceof Error ? err.message : String(err);
       set({ sceneStatus: "error", sceneError: msg });
+      useTimeline.getState().append({
+        kind: "error",
+        icon: "⚠",
+        label: "Scene capture failed",
+        detail: msg,
+        meta: { error: msg, phase: "scene-capture" },
+      });
     }
   },
 }));

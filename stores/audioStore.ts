@@ -4,6 +4,7 @@ import { extractSpokenText, extractEmoteContext } from "@/components/chat/Format
 import { addAudioTags } from "@/services/gemini";
 import { synthesizeToFile } from "@/services/elevenlabs";
 import { useRecovery } from "@/stores/recoveryStore";
+import { useTimeline } from "@/stores/timelineStore";
 import {
   currentAbortSignal,
   currentGeneration,
@@ -209,6 +210,13 @@ export const useAudio = create<AudioState>((set, get) => ({
         cache: { ...s.cache, [messageId]: { messageId, status: "error", error: msg } },
         currentMessageId: null,
       }));
+      useTimeline.getState().append({
+        kind: "error",
+        icon: "⚠",
+        label: "TTS synthesis failed",
+        detail: msg,
+        meta: { error: msg, phase: "audio-synth", messageId },
+      });
       // Transient synth failure (timeout, network) → hand to the recovery
       // popup so Tim can resubmit just the ElevenLabs step or cancel.
       // Non-transient (e.g. emote-only "nothing to speak") stays a quiet

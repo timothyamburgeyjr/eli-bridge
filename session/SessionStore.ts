@@ -12,6 +12,7 @@ import {
 } from "./sessionPersistence";
 import { resetPersonContextCache } from "@/people/personContext";
 import { useMode } from "@/stores/modeStore";
+import { useTimeline } from "@/stores/timelineStore";
 import type { ChatItem } from "@/components/chat/ChatStream";
 
 const BIOGRAPHY_PATH = "08 - Elias Reed/biography.md";
@@ -150,6 +151,16 @@ export const useSession = create<SessionState>((set, get) => ({
     // (via chatStore.clear()) so session-start doesn't clobber existing chat.
     resetPersonContextCache();
 
+    // Fresh timeline per session — diagnostic history from the previous
+    // session lives on disk only via the prior export (if any).
+    useTimeline.getState().clear();
+    useTimeline.getState().append({
+      kind: "session-start",
+      icon: "▶",
+      label: "Session started",
+      meta: { sessionId, startedAt },
+    });
+
     // Start background GPS polling so driving-mode auto-detection fires even
     // when Tim isn't actively sending messages (the common case — he starts
     // a drive and doesn't talk to Eli immediately).
@@ -198,6 +209,13 @@ export const useSession = create<SessionState>((set, get) => ({
     const endedAt = new Date().toISOString();
     set({ status: "ending", endedAt });
     persistCurrent(get);
+
+    useTimeline.getState().append({
+      kind: "session-end",
+      icon: "⏹",
+      label: "Session ended",
+      meta: { endedAt },
+    });
 
     // Polling + driving/venue state are session-scoped — drop them on end.
     stopDrivingPoll();

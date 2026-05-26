@@ -10,9 +10,11 @@ import { DrivingOverlay } from "@/components/driving/DrivingOverlay";
 import { DrivingAutoBanner } from "@/components/driving/DrivingAutoBanner";
 import { RecoveryPopup } from "@/components/common/RecoveryPopup";
 import { installVenueBridge } from "@/session/venueBridge";
+import { installTimelineExporter } from "@/session/timelineExport";
 import { useConnection } from "@/stores/connectionStore";
 import { useChat } from "@/stores/chatStore";
 import { useSession } from "@/session/SessionStore";
+import { useTimeline } from "@/stores/timelineStore";
 
 export default function RootLayout() {
   const hydratePeople = usePeople((s) => s.hydrate);
@@ -28,9 +30,14 @@ export default function RootLayout() {
       await useSession.getState().hydrate();
       // Restore any queued sends that were pending when the app was last killed.
       useChat.getState().hydrateOfflineQueue();
+      // Restore the timeline from disk too — survives OOM kills like the chat.
+      useTimeline.getState().hydrate();
     })();
     // One-time wiring: VenueMode ↔ accelerometer ride detection + RideCard dispatch.
     installVenueBridge();
+    // Wire the timeline → Obsidian export action. The store stays decoupled
+    // from the vault service by accepting an exporter function at boot.
+    installTimelineExporter();
 
     // Connectivity monitoring + offline-queue drain on reconnect.
     useConnection.getState().install();
