@@ -17,9 +17,11 @@ import { useTimeline } from "@/stores/timelineStore";
 
 /**
  * Background poller. One GPS fix every POLL_INTERVAL_MS, fed into:
- *   1. modeStore.evaluateTransitions — drives driving-auto-entry banner
- *      (venue auto-detect output is no longer surfaced as cards/scene
- *      pushes; Tim manages places via Save Place + Brief).
+ *   1. modeStore.evaluateTransitions — drives the Conversation-Mode auto-entry
+ *      banner (formerly Drive Mode; renamed to Conversation Mode but still
+ *      triggered by sustained IN_VEHICLE activity). Venue auto-detect output
+ *      is no longer surfaced as cards/scene pushes — Tim manages places via
+ *      Save Place + Brief.
  *   2. live-context banner — composes a chip set from already-fetched data
  *      so the banner stays current between messages.
  *   3. stuck-pipeline watchdog — backstop in case an upstream call slips
@@ -73,11 +75,11 @@ async function tick() {
       location: loc,
       activity: inferActivityFromMotion(loc.speed),
     };
-    const drivingAutoEnabled = useSettings.getState().drivingModeAuto;
-    // Run for its driving-auto side effect (banner state). Venue transitions
-    // returned here are intentionally ignored — Tim controls venue context
-    // through Save Place rather than auto-detection.
-    useMode.getState().evaluateTransitions(snapshot, { drivingAutoEnabled });
+    const conversationAutoEnabled = useSettings.getState().conversationModeAuto;
+    // Run for the Conversation-Mode auto-entry side effect (banner state).
+    // Venue transitions returned here are intentionally ignored — Tim controls
+    // venue context through Save Place rather than auto-detection.
+    useMode.getState().evaluateTransitions(snapshot, { conversationAutoEnabled });
 
     await updateLiveContext(loc, snapshot);
     runStuckStateWatchdog();
@@ -197,13 +199,14 @@ function logLocationIfChanged(loc: LocationData, placeLabel: string): void {
 }
 
 /**
- * Begin background polling for driving-mode auto-detection. Called from
- * SessionStore.start so the polling lifecycle tracks session lifecycle
- * (no polling outside an active session — saves battery).
+ * Begin background polling for Conversation-Mode auto-detection (and the live
+ * context banner + watchdog). Called from SessionStore.start so the polling
+ * lifecycle tracks session lifecycle (no polling outside an active session —
+ * saves battery).
  *
  * Idempotent: calling twice without a stop() in between does not stack.
  */
-export function startDrivingPoll() {
+export function startSessionPoll() {
   if (pollTimer) return;
   bannerGeocodeCache = null;
   lastLoggedPlace = null;
@@ -218,7 +221,7 @@ export function startDrivingPoll() {
 }
 
 /** Stop background polling. Called from SessionStore on session end/discard. */
-export function stopDrivingPoll() {
+export function stopSessionPoll() {
   if (pollTimer) {
     clearInterval(pollTimer);
     pollTimer = null;

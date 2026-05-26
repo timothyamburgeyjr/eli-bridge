@@ -26,20 +26,21 @@ import {
   VOICE_RECORDING_PRESET,
 } from "@/services/audio";
 
-const KEEP_AWAKE_TAG = "eli-bridge-driving";
+const KEEP_AWAKE_TAG = "eli-bridge-conversation";
 
 /**
- * Full-screen Driving Mode overlay. Any tap on the body toggles recording —
- * tap to start, tap to stop+send. No small buttons to aim at. Eli's replies
- * are always spoken through the phone speaker via ElevenLabs so Tim never
- * needs to read the screen.
+ * Full-screen Conversation Mode overlay (formerly Drive Mode). Any tap on the
+ * body toggles recording — tap to start, tap to stop+send. No small buttons
+ * to aim at. Eli's replies are always spoken through the phone speaker via
+ * ElevenLabs so Tim never needs to read the screen.
  *
- * Enter via useMode.enterDrivingManual() or auto-trigger (sustained
- * IN_VEHICLE). Exit via the small Stop button at the top.
+ * Enter via useMode.enterConversationManual() or auto-trigger (sustained
+ * IN_VEHICLE — still the underlying trigger, just renamed at the UI). Exit
+ * via the small Stop button at the top.
  */
-export function DrivingOverlay() {
-  const driving = useMode((s) => s.driving);
-  const exitDriving = useMode((s) => s.exitDriving);
+export function ConversationOverlay() {
+  const conversation = useMode((s) => s.conversation);
+  const exitConversation = useMode((s) => s.exitConversation);
   const messages = useChat((s) => s.messages);
   const addAttachment = useChat((s) => s.addAttachment);
   const sendMessage = useChat((s) => s.sendMessage);
@@ -63,7 +64,7 @@ export function DrivingOverlay() {
 
   // Reset local state when the overlay closes
   useEffect(() => {
-    if (!driving) {
+    if (!conversation) {
       setRecording(false);
       setElapsed(0);
       setError(null);
@@ -72,13 +73,13 @@ export function DrivingOverlay() {
         timerRef.current = null;
       }
     }
-  }, [driving]);
+  }, [conversation]);
 
-  // Hold a wake-lock while Driving Mode is active. Without this the screen
+  // Hold a wake-lock while Conversation Mode is active. Without this the screen
   // sleeps mid-conversation and the audio pipeline (recorder + ElevenLabs
   // playback) stops being driven, which leaves Tim talking to a frozen app.
   useEffect(() => {
-    if (!driving) return;
+    if (!conversation) return;
     activateKeepAwakeAsync(KEEP_AWAKE_TAG).catch(() => {
       // best-effort; rare on Android, but a failed activation shouldn't
       // crash the overlay
@@ -90,21 +91,21 @@ export function DrivingOverlay() {
         // already deactivated
       }
     };
-  }, [driving]);
+  }, [conversation]);
 
   // Force the audio session into playback mode on entry so Eli's TTS routes
   // through the loudspeaker (not the earpiece-friendly comm path that the
   // session-start setupBridgeAudioMode leaves us in). Restore recording mode
   // on exit so the regular InputBar PTT keeps working.
   useEffect(() => {
-    if (!driving) return;
+    if (!conversation) return;
     setPlaybackAudioMode();
     return () => {
       setRecordingAudioMode();
     };
-  }, [driving]);
+  }, [conversation]);
 
-  // Force-speak every new Eli reply while Driving Mode is on. Watches the
+  // Force-speak every new Eli reply while Conversation Mode is on. Watches the
   // latest Eli message id; when it changes, auto-triggers ElevenLabs playback.
   //
   // Freshness gate: only auto-play messages that are <60s old. Prevents the
@@ -116,7 +117,7 @@ export function DrivingOverlay() {
   const lastAutoSpokenRef = useRef<string | null>(null);
   const playEli = useAudio((s) => s.playEli);
   useEffect(() => {
-    if (!driving) return;
+    if (!conversation) return;
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
       if (m.from !== "eli") continue;
@@ -129,19 +130,19 @@ export function DrivingOverlay() {
         // Stale — claim it without auto-playing, so future ticks don't
         // keep examining the same old message.
         console.log(
-          `[drive] auto-speak SKIP (stale) msg=${m.id} age=${ageMs}ms`
+          `[conv] auto-speak SKIP (stale) msg=${m.id} age=${ageMs}ms`
         );
         lastAutoSpokenRef.current = m.id;
         return;
       }
       console.log(
-        `[drive] auto-speak FIRE msg=${m.id} age=${ageMs ?? "?"}ms`
+        `[conv] auto-speak FIRE msg=${m.id} age=${ageMs ?? "?"}ms`
       );
       lastAutoSpokenRef.current = m.id;
       playEli(m.id, raw);
       return;
     }
-  }, [driving, messages, playEli]);
+  }, [conversation, messages, playEli]);
 
   // TTS lifecycle from audioStore — we need to block recording while audio
   // is generating/playing, and let a tap on the screen stop playback.
@@ -251,7 +252,7 @@ export function DrivingOverlay() {
     }
   };
 
-  if (!driving) return null;
+  if (!conversation) return null;
 
   const statusLine =
     chatStatus === "assembling"
@@ -267,12 +268,12 @@ export function DrivingOverlay() {
       : "Tap anywhere to speak";
 
   return (
-    <Modal visible={driving} animationType="fade" statusBarTranslucent>
+    <Modal visible={conversation} animationType="fade" statusBarTranslucent>
       <SafeAreaView style={styles.root} edges={["top", "bottom", "left", "right"]}>
         {/* Top strip */}
         <View style={styles.topStrip}>
-          <Text style={styles.modeLabel}>🚗 Driving Mode</Text>
-          <Pressable onPress={exitDriving} style={styles.exitBtn} hitSlop={16}>
+          <Text style={styles.modeLabel}>🎙 Conversation Mode</Text>
+          <Pressable onPress={exitConversation} style={styles.exitBtn} hitSlop={16}>
             <Text style={{ color: C.red, fontSize: 13, fontWeight: "600" }}>
               Stop
             </Text>
@@ -359,7 +360,7 @@ async function beginRecordingCycle(
   try {
     await attempt();
   } catch (firstErr) {
-    console.warn("[drive] recording cycle failed once, retrying:", firstErr);
+    console.warn("[conv] recording cycle failed once, retrying:", firstErr);
     // Brief pause to let the native recorder settle before the retry.
     await new Promise((r) => setTimeout(r, 200));
     await attempt(); // if this throws, it propagates to the caller's catch

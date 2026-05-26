@@ -6,30 +6,31 @@ import { useMode } from "@/stores/modeStore";
 const GRACE_SECONDS = 10;
 
 /**
- * Floating banner that appears at the top of the screen when auto-driving is
- * pending. Ticks a 10-second countdown. If Tim doesn't tap "Cancel" by then,
- * Driving Mode auto-confirms. Safe on any screen — rendered at the layout root.
+ * Floating banner that appears at the top of the screen when Conversation
+ * Mode auto-entry is pending (vehicle detected). Ticks a 10-second countdown.
+ * If Tim doesn't tap "Cancel" by then, Conversation Mode auto-confirms. Safe
+ * on any screen — rendered at the layout root.
  */
-export function DrivingAutoBanner() {
-  const drivingPendingSince = useMode((s) => s.drivingPendingSince);
-  const confirmDrivingAuto = useMode((s) => s.confirmDrivingAuto);
-  const cancelDrivingAuto = useMode((s) => s.cancelDrivingAuto);
+export function ConversationAutoBanner() {
+  const conversationPendingSince = useMode((s) => s.conversationPendingSince);
+  const confirmConversationAuto = useMode((s) => s.confirmConversationAuto);
+  const cancelConversationAuto = useMode((s) => s.cancelConversationAuto);
 
   const [remaining, setRemaining] = useState(GRACE_SECONDS);
 
   useEffect(() => {
-    if (!drivingPendingSince) return;
+    if (!conversationPendingSince) return;
 
     // Reset countdown each time a new auto-entry begins.
     setRemaining(GRACE_SECONDS);
 
-    const startedMs = new Date(drivingPendingSince).getTime();
+    const startedMs = new Date(conversationPendingSince).getTime();
 
     const tick = () => {
       const elapsedSec = Math.floor((Date.now() - startedMs) / 1000);
       const left = GRACE_SECONDS - elapsedSec;
       if (left <= 0) {
-        confirmDrivingAuto();
+        confirmConversationAuto();
       } else {
         setRemaining(left);
       }
@@ -39,24 +40,24 @@ export function DrivingAutoBanner() {
     tick();
     const id = setInterval(tick, 500);
     return () => clearInterval(id);
-  }, [drivingPendingSince, confirmDrivingAuto]);
+  }, [conversationPendingSince, confirmConversationAuto]);
 
-  if (!drivingPendingSince) return null;
+  if (!conversationPendingSince) return null;
 
   return (
     <View pointerEvents="box-none" style={styles.root}>
       <View style={styles.banner}>
-        <Text style={styles.headline}>🚗 Entering Driving Mode</Text>
+        <Text style={styles.headline}>🎙 Entering Conversation Mode</Text>
         <Text style={styles.subline}>
           Vehicle detected · auto-switching in {remaining}s
         </Text>
         <View style={styles.actions}>
-          <Pressable onPress={cancelDrivingAuto} style={styles.cancelBtn}>
+          <Pressable onPress={cancelConversationAuto} style={styles.cancelBtn}>
             <Text style={{ color: C.muted, fontSize: 12, fontWeight: "600" }}>
               Cancel
             </Text>
           </Pressable>
-          <Pressable onPress={confirmDrivingAuto} style={styles.confirmBtn}>
+          <Pressable onPress={confirmConversationAuto} style={styles.confirmBtn}>
             <Text style={{ color: C.accent, fontSize: 12, fontWeight: "700" }}>
               Enter now
             </Text>

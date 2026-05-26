@@ -92,7 +92,7 @@ interface ChatState {
   pendingLookups: PendingLookup[];
   /**
    * Timestamp (ms) of the most recent transition into "assembling". Used by
-   * the watchdog (in drivingPoller) to detect a frozen send pipeline and
+   * the watchdog (in sessionPoller) to detect a frozen send pipeline and
    * recover gracefully — should never be needed if the upstream timeouts
    * are working, but defends against any path that slips past them.
    */
@@ -698,12 +698,12 @@ export const useChat = create<ChatState>((set, get) => ({
       const sensors = state.sensorOverride ?? (await gatherSensorSnapshot());
       const history = buildHistory(state.messages);
 
-      // ── Step 1a: Evaluate behavioral mode transitions. Driving auto-entry
-      // begins its 10s grace banner when activity is IN_VEHICLE; the UI layer
-      // owns the confirm/cancel. Venue transitions are computed but no longer
-      // surfaced as cards — Tim manages venue context via Save Place.
-      const drivingAutoEnabled = useSettings.getState().drivingModeAuto;
-      useMode.getState().evaluateTransitions(sensors, { drivingAutoEnabled });
+      // ── Step 1a: Evaluate behavioral mode transitions. Conversation Mode
+      // auto-entry begins its 10s grace banner when activity is IN_VEHICLE;
+      // the UI layer owns the confirm/cancel. Venue transitions are computed
+      // but no longer surfaced as cards — Tim manages venue context via Save Place.
+      const conversationAutoEnabled = useSettings.getState().conversationModeAuto;
+      useMode.getState().evaluateTransitions(sensors, { conversationAutoEnabled });
 
       const images = await Promise.all(
         attachments.filter((a) => a.kind === "image").map(toInlineBlob)

@@ -68,7 +68,7 @@ export function SettingsPanel({ visible, onClose, onPeoplePress, onDiagnosticsPr
     {
       heading: "Session Behavior",
       toggles: [
-        { key: "drivingModeAuto", icon: "🚗", label: "Driving Mode (auto on drive)" },
+        { key: "conversationModeAuto", icon: "🎙", label: "Conversation Mode (auto on drive)" },
       ],
     },
     {

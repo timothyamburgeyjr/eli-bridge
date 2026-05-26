@@ -2,6 +2,17 @@ import { create } from "zustand";
 import type { SensorSnapshot } from "@/types";
 import { useTimeline } from "@/stores/timelineStore";
 
+/**
+ * Mode store — tracks Conversation Mode (formerly Drive Mode) and Venue Mode.
+ *
+ * Conversation Mode is the full-screen tap-PTT overlay with image attachments
+ * disabled and ElevenLabs forced on. It auto-activates when the activity
+ * inference reports `car` for a sustained window — the original purpose was
+ * driving, and the auto-trigger is unchanged, but the mode is named for the
+ * conversational UX it provides rather than the trigger condition. Tim can
+ * also enter it manually from the header.
+ */
+
 export interface VenueBoundary {
   /** Center coordinates of the venue. */
   latitude: number;
@@ -14,19 +25,21 @@ export interface VenueBoundary {
   placeType: string;
 }
 
-export type DrivingActivation = "manual" | "auto";
+export type ConversationActivation = "manual" | "auto";
 
 interface ModeState {
-  /** Driving Mode active — full-screen tap-PTT overlay, image attachments disabled, ElevenLabs forced on. */
-  driving: boolean;
-  /** How Driving Mode was activated. "auto" → shows the 10s cancellation banner. */
-  drivingSource: DrivingActivation | null;
-  /** ISO timestamp of when driving mode auto-entry is pending (banner visible). null when not pending. */
-  drivingPendingSince: string | null;
+  /** Conversation Mode active — full-screen tap-PTT overlay, image attachments
+   *  disabled, ElevenLabs forced on. */
+  conversation: boolean;
+  /** How Conversation Mode was activated. "auto" → shows the 10s cancellation banner. */
+  conversationSource: ConversationActivation | null;
+  /** ISO timestamp of when Conversation Mode auto-entry is pending (banner visible).
+   *  null when not pending. */
+  conversationPendingSince: string | null;
   /**
    * Consecutive non-car ticks seen since the last car tick. Only used for
    * auto-exit hysteresis — we require multiple sustained non-car samples
-   * before dropping Driving Mode, so a red light or a 25-mph school zone
+   * before dropping the mode, so a red light or a 25-mph school zone
    * doesn't flip the mode off mid-drive. Reset to 0 on any car tick.
    */
   nonCarStreak: number;
@@ -36,19 +49,19 @@ interface ModeState {
   /** Current venue's boundary — used to auto-exit when Tim walks off the property. */
   venueBoundary: VenueBoundary | null;
 
-  /** Manually enter Driving Mode (from Settings or an in-session button). */
-  enterDrivingManual: () => void;
+  /** Manually enter Conversation Mode (from the header button). */
+  enterConversationManual: () => void;
   /**
    * Begin the 10-second auto-entry banner. Call when sustained IN_VEHICLE
-   * activity is first detected. After 10s without a cancel, call confirmDrivingAuto().
+   * activity is first detected. After 10s without a cancel, call confirmConversationAuto().
    */
-  beginDrivingAuto: () => void;
+  beginConversationAuto: () => void;
   /** Confirm auto-entry after the 10s grace period. */
-  confirmDrivingAuto: () => void;
+  confirmConversationAuto: () => void;
   /** Cancel a pending auto-entry (user tapped "cancel" in the banner). */
-  cancelDrivingAuto: () => void;
-  /** Exit Driving Mode (manual or auto-stop when activity !== car for 60s). */
-  exitDriving: () => void;
+  cancelConversationAuto: () => void;
+  /** Exit Conversation Mode (manual or auto-stop when activity !== car for ~45s). */
+  exitConversation: () => void;
 
   /** Enter VenueMode with a specific boundary. */
   enterVenue: (boundary: VenueBoundary) => void;
@@ -63,12 +76,12 @@ interface ModeState {
    */
   evaluateTransitions: (
     snapshot: SensorSnapshot,
-    opts?: { drivingAutoEnabled?: boolean }
+    opts?: { conversationAutoEnabled?: boolean }
   ) => ModeTransitions;
 }
 
 export interface ModeTransitions {
-  drivingAutoBanner?: { name: "entering" | "cancelled" | "exited" };
+  conversationAutoBanner?: { name: "entering" | "cancelled" | "exited" };
   venueEntered?: VenueBoundary;
   venueExited?: VenueBoundary;
 }
@@ -120,68 +133,68 @@ function distanceM(
 const EXIT_STREAK_THRESHOLD = 3;
 
 export const useMode = create<ModeState>((set, get) => ({
-  driving: false,
-  drivingSource: null,
-  drivingPendingSince: null,
+  conversation: false,
+  conversationSource: null,
+  conversationPendingSince: null,
   nonCarStreak: 0,
   venue: false,
   venueBoundary: null,
 
-  enterDrivingManual: () => {
-    if (get().driving) return;
+  enterConversationManual: () => {
+    if (get().conversation) return;
     set({
-      driving: true,
-      drivingSource: "manual",
-      drivingPendingSince: null,
+      conversation: true,
+      conversationSource: "manual",
+      conversationPendingSince: null,
       nonCarStreak: 0,
     });
     useTimeline.getState().append({
       kind: "drive-enter",
-      icon: "🚗",
-      label: "Drive Mode entered (manual)",
+      icon: "🎙",
+      label: "Conversation Mode entered (manual)",
     });
   },
 
-  beginDrivingAuto: () => {
+  beginConversationAuto: () => {
     const s = get();
-    if (s.driving || s.drivingPendingSince) return;
-    set({ drivingPendingSince: new Date().toISOString() });
+    if (s.conversation || s.conversationPendingSince) return;
+    set({ conversationPendingSince: new Date().toISOString() });
   },
 
-  confirmDrivingAuto: () => {
+  confirmConversationAuto: () => {
     const s = get();
-    if (s.driving) return;
+    if (s.conversation) return;
     set({
-      driving: true,
-      drivingSource: "auto",
-      drivingPendingSince: null,
+      conversation: true,
+      conversationSource: "auto",
+      conversationPendingSince: null,
       nonCarStreak: 0,
     });
     useTimeline.getState().append({
       kind: "drive-enter",
-      icon: "🚗",
-      label: "Drive Mode entered (auto)",
+      icon: "🎙",
+      label: "Conversation Mode entered (auto · vehicle detected)",
     });
   },
 
-  cancelDrivingAuto: () => {
-    set({ drivingPendingSince: null });
+  cancelConversationAuto: () => {
+    set({ conversationPendingSince: null });
   },
 
-  exitDriving: () => {
-    const was = get().driving;
-    if (!was && !get().drivingPendingSince) return;
+  exitConversation: () => {
+    const was = get().conversation;
+    if (!was && !get().conversationPendingSince) return;
     set({
-      driving: false,
-      drivingSource: null,
-      drivingPendingSince: null,
+      conversation: false,
+      conversationSource: null,
+      conversationPendingSince: null,
       nonCarStreak: 0,
     });
     if (was) {
       useTimeline.getState().append({
         kind: "drive-exit",
-        icon: "🛑",
-        label: "Drive Mode exited",
+        icon: "🔇",
+        label: "Conversation Mode exited",
       });
     }
   },
@@ -232,37 +245,37 @@ export const useMode = create<ModeState>((set, get) => ({
       }
     }
 
-    // ── Driving Mode (auto) ──────────────────────────────────────────
-    const autoAllowed = opts?.drivingAutoEnabled ?? true;
+    // ── Conversation Mode (auto) ─────────────────────────────────────
+    const autoAllowed = opts?.conversationAutoEnabled ?? true;
     const isCar = snapshot.activity === "car";
 
-    if (autoAllowed && !s.driving) {
+    if (autoAllowed && !s.conversation) {
       // Entry path — begin the 10s confirm banner on first car tick.
-      if (isCar && !s.drivingPendingSince) {
-        set({ drivingPendingSince: new Date().toISOString() });
-        transitions.drivingAutoBanner = { name: "entering" };
+      if (isCar && !s.conversationPendingSince) {
+        set({ conversationPendingSince: new Date().toISOString() });
+        transitions.conversationAutoBanner = { name: "entering" };
       }
-    } else if (s.driving && s.drivingSource === "auto") {
+    } else if (s.conversation && s.conversationSource === "auto") {
       // Exit path — require EXIT_STREAK_THRESHOLD consecutive non-car ticks
       // before dropping the mode. Stoplights and slow zones briefly drop GPS
       // speed under the car threshold; a single tick of "not-car" shouldn't
-      // flip Driving Mode off mid-drive.
+      // flip Conversation Mode off mid-drive.
       if (isCar) {
         if (s.nonCarStreak > 0) set({ nonCarStreak: 0 });
       } else {
         const next = s.nonCarStreak + 1;
         if (next >= EXIT_STREAK_THRESHOLD) {
           set({
-            driving: false,
-            drivingSource: null,
-            drivingPendingSince: null,
+            conversation: false,
+            conversationSource: null,
+            conversationPendingSince: null,
             nonCarStreak: 0,
           });
-          transitions.drivingAutoBanner = { name: "exited" };
+          transitions.conversationAutoBanner = { name: "exited" };
           useTimeline.getState().append({
             kind: "drive-exit",
-            icon: "🛑",
-            label: "Drive Mode exited (auto · sustained non-car)",
+            icon: "🔇",
+            label: "Conversation Mode exited (auto · sustained non-car)",
           });
         } else {
           set({ nonCarStreak: next });

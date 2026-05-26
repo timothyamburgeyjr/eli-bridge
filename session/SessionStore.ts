@@ -4,7 +4,7 @@ import { updateScene as kindroidUpdateScene } from "@/services/kindroid";
 import { setSessionContext } from "@/services/gemini";
 import { gatherSensorSnapshot } from "./liveSensors";
 import { buildJournal, journalFilename, BuiltJournal } from "./journalBuilder";
-import { startDrivingPoll, stopDrivingPoll } from "./drivingPoller";
+import { startSessionPoll, stopSessionPoll } from "./sessionPoller";
 import {
   persistSession,
   hydrateSession as hydratePersistedSession,
@@ -164,7 +164,7 @@ export const useSession = create<SessionState>((set, get) => ({
     // Start background GPS polling so driving-mode auto-detection fires even
     // when Tim isn't actively sending messages (the common case — he starts
     // a drive and doesn't talk to Eli immediately).
-    startDrivingPoll();
+    startSessionPoll();
 
     // Fire both external I/O in parallel — neither gate the session becoming active
     const bioPromise = (async () => {
@@ -218,8 +218,8 @@ export const useSession = create<SessionState>((set, get) => ({
     });
 
     // Polling + driving/venue state are session-scoped — drop them on end.
-    stopDrivingPoll();
-    useMode.getState().exitDriving();
+    stopSessionPoll();
+    useMode.getState().exitConversation();
     useMode.getState().exitVenue();
 
     try {
@@ -266,8 +266,8 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 
   discardJournal: () => {
-    stopDrivingPoll();
-    useMode.getState().exitDriving();
+    stopSessionPoll();
+    useMode.getState().exitConversation();
     useMode.getState().exitVenue();
     set({
       status: "idle",
@@ -299,7 +299,7 @@ export const useSession = create<SessionState>((set, get) => ({
         journal: persisted.journal,
         errorMessage: null,
       });
-      startDrivingPoll();
+      startSessionPoll();
       console.log("[session] hydrated active session from disk");
     } else if (persisted.status === "journal-ready" || persisted.status === "saved") {
       // Tim was at the post-end review screen — restore the drafted

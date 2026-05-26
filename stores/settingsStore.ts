@@ -10,7 +10,7 @@ export type SettingsToggleKey =
   | "calendarEnabled"
   | "nowPlayingEnabled"
   | "voiceVerification"
-  | "drivingModeAuto";
+  | "conversationModeAuto";
 
 export interface SettingsState {
   locationEnabled: boolean;
@@ -22,8 +22,9 @@ export interface SettingsState {
 
   voiceVerification: boolean;
 
-  /** Auto-activate Driving Mode when activity recognition reports IN_VEHICLE. */
-  drivingModeAuto: boolean;
+  /** Auto-activate Conversation Mode when activity recognition reports IN_VEHICLE.
+   *  (Conversation Mode is what used to be called Driving Mode.) */
+  conversationModeAuto: boolean;
 
   toggle: (key: SettingsToggleKey) => void;
   set: <K extends SettingsToggleKey>(key: K, value: boolean) => void;
@@ -65,7 +66,7 @@ export const useSettings = create<SettingsState>()(
 
       voiceVerification: true,
 
-      drivingModeAuto: true,
+      conversationModeAuto: true,
 
       toggle: (key) => set((s) => ({ [key]: !s[key] } as Partial<SettingsState>)),
       set: (key, value) => set({ [key]: value } as Partial<SettingsState>),
@@ -81,7 +82,7 @@ export const useSettings = create<SettingsState>()(
         calendarEnabled: s.calendarEnabled,
         nowPlayingEnabled: s.nowPlayingEnabled,
         voiceVerification: s.voiceVerification,
-        drivingModeAuto: s.drivingModeAuto,
+        conversationModeAuto: s.conversationModeAuto,
       }),
     }
   )

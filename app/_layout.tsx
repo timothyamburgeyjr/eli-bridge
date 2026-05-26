@@ -6,8 +6,8 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { View } from "react-native";
 import { C } from "@/constants/theme";
 import { usePeople } from "@/people/PeopleStore";
-import { DrivingOverlay } from "@/components/driving/DrivingOverlay";
-import { DrivingAutoBanner } from "@/components/driving/DrivingAutoBanner";
+import { ConversationOverlay } from "@/components/conversation/ConversationOverlay";
+import { ConversationAutoBanner } from "@/components/conversation/ConversationAutoBanner";
 import { RecoveryPopup } from "@/components/common/RecoveryPopup";
 import { installVenueBridge } from "@/session/venueBridge";
 import { installTimelineExporter } from "@/session/timelineExport";
@@ -62,8 +62,8 @@ export default function RootLayout() {
           />
           {/* Driving Mode overlay is rendered at the layout root so it's
               visible above all screens, including Settings, modals, etc. */}
-          <DrivingAutoBanner />
-          <DrivingOverlay />
+          <ConversationAutoBanner />
+          <ConversationOverlay />
           {/* Timeout-recovery popup — overlays everything, Driving Mode
               included, when a pipeline step fails transiently. */}
           <RecoveryPopup />

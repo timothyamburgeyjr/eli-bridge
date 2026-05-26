@@ -147,7 +147,7 @@ const MAX_MOTION_SAMPLES = 12;
 const motionBuffer: MotionSample[] = [];
 
 /**
- * Push a GPS fix into the rolling motion buffer. Callers (drivingPoller,
+ * Push a GPS fix into the rolling motion buffer. Callers (sessionPoller,
  * liveSensors) should call this once per tick BEFORE invoking
  * `inferActivityFromMotion` so the latest sample is in the window.
  */

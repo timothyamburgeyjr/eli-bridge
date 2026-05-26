@@ -22,7 +22,7 @@ import {
  * and the Export button dumps the whole log to Obsidian as markdown.
  *
  * Both the presentation and diagnostic data come from `useTimeline` —
- * sources around the app (sendMessage, captureScene, driving poller,
+ * sources around the app (sendMessage, captureScene, session poller,
  * modeStore, abortPipeline, audioStore) push events into it via
  * `useTimeline.getState().append(...)`. There is no demo-data plumbing
  * anymore; everything is live.
