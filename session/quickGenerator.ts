@@ -126,6 +126,12 @@ export function maybeRefreshQuickMessages(snapshot: SensorSnapshot): void {
 
 async function runGeneration(snapshot: SensorSnapshot, fp: string): Promise<void> {
   const q = useQuick.getState();
+  // Capture current suggestions as the "previous list" so Gemini can do a
+  // keep/drop/add merge instead of a full replace. If we're empty (first
+  // entry into Conversation Mode), this is undefined and Gemini generates
+  // from scratch.
+  const previousSuggestions =
+    q.suggestions.length > 0 ? q.suggestions : undefined;
   q.setGenerating(true);
   try {
     const snapshotText = snapshotToText(snapshot);
@@ -134,13 +140,23 @@ async function runGeneration(snapshot: SensorSnapshot, fp: string): Promise<void
       sensorSnapshot: snapshotText,
       history,
       count: TARGET_BATCH_SIZE,
+      previousSuggestions,
     });
     useQuick.getState().setSuggestions(batch, fp);
     if (snapshot.location) {
       lastAnchorLat = snapshot.location.latitude;
       lastAnchorLon = snapshot.location.longitude;
     }
-    console.log(`[quickGen] batch of ${batch.length} suggestions ready (fp=${fp})`);
+    const kept = previousSuggestions
+      ? previousSuggestions.filter((p) =>
+          batch.some((b) => b.label === p.label)
+        ).length
+      : 0;
+    console.log(
+      `[quickGen] batch of ${batch.length} (kept ${kept}, dropped ${
+        previousSuggestions ? previousSuggestions.length - kept : 0
+      }, new ${batch.length - kept}) fp=${fp}`
+    );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.warn("[quickGen] generation failed:", msg);

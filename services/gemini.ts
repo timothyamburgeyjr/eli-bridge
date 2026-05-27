@@ -376,8 +376,21 @@ export interface GenerateQuickMessagesInput {
   tripContext?: string;
   /** Recent message history to avoid suggestions Tim or Eli just touched on. */
   history?: Content[];
-  /** Cap on how many suggestions to generate. UI uses 16 (4 pages × 4). */
+  /**
+   * Target batch size. Used for first-generation. On refresh (when
+   * `previousSuggestions` is supplied), Gemini is told to aim for this many
+   * but is allowed to return fewer if the moment is quiet — so suggestions
+   * don't pad out with stale filler. UI uses 16 (4 pages × 4).
+   */
   count?: number;
+  /**
+   * If provided, this is a REFRESH. Gemini is told to review each prior
+   * suggestion, KEEP the ones still relevant (copying them verbatim), DROP
+   * the rest, and ADD new ones for topics that emerged since last gen. This
+   * is what prevents the batch from being thrown out and rebuilt every
+   * 90 seconds — relevant cards persist as long as they're still relevant.
+   */
+  previousSuggestions?: QuickMessage[];
   signal?: AbortSignal;
 }
 
@@ -385,13 +398,35 @@ export async function generateQuickMessages(
   input: GenerateQuickMessagesInput
 ): Promise<QuickMessage[]> {
   const count = input.count ?? 16;
+  const isRefresh = (input.previousSuggestions?.length ?? 0) > 0;
+
+  const refreshGuidance = isRefresh
+    ? "REFRESH MODE — you are receiving a PREVIOUS LIST of Quick Messages " +
+      "Gemini generated for Tim earlier. Tim's context has shifted since " +
+      "then (new location, weather, time, or activity).\n\n" +
+      "Walk through each entry in PREVIOUS LIST and decide:\n" +
+      "  - STILL RELEVANT? Copy it into your output VERBATIM — same icon, " +
+      "label, body, category. Do NOT paraphrase.\n" +
+      "  - NO LONGER RELEVANT (passed the landmark, weather moved on, ETA " +
+      "is now stale, topic was already discussed)? Drop it.\n" +
+      "Then ADD new suggestions for topics that emerged from the current " +
+      "context — new landmarks visible, new weather, new region with its " +
+      "own history, etc. New entries should not duplicate what you kept.\n\n" +
+      `Aim for around ${count} total entries but DON'T pad with stale ideas ` +
+      "to hit the count. A quiet rural drive might only sustain 5-6 " +
+      "relevant suggestions; a downtown approach might justify 16. The " +
+      "right number is what's genuinely useful right now.\n\n"
+    : "FIRST GENERATION — no previous list. Generate a fresh batch from " +
+      `the current context. Aim for ${count} entries.\n\n`;
+
   const prompt =
     "You are generating Quick Messages for Tim's Conversation Mode. Tim is " +
     "in a vehicle (or otherwise hands-busy) and can't type — he taps a card " +
     "to instantly send a pre-written first-person observation to Eli, his " +
     "AI companion. Each card needs to feel like something Tim would naturally " +
     "say in this moment.\n\n" +
-    `Generate exactly ${count} varied suggestions covering a mix of:\n` +
+    refreshGuidance +
+    "Topics to cover (mix of):\n" +
     "- Landmarks visible or coming up (signs, bridges, monuments, skylines)\n" +
     "- Weather, traffic, ETA, or driving observations\n" +
     "- History or trivia about where Tim is right now — towns, regions, " +
@@ -418,7 +453,14 @@ export async function generateQuickMessages(
     "markdown fence, just the JSON object.\n\n" +
     "[SENSOR SNAPSHOT]\n" +
     input.sensorSnapshot +
-    (input.tripContext ? `\n\n[TRIP CONTEXT]\n${input.tripContext}` : "");
+    (input.tripContext ? `\n\n[TRIP CONTEXT]\n${input.tripContext}` : "") +
+    (isRefresh
+      ? `\n\n[PREVIOUS LIST — review for relevance]\n${JSON.stringify(
+          input.previousSuggestions,
+          null,
+          2
+        )}`
+      : "");
 
   const contents: Content[] = [
     ...(input.history ?? []),
