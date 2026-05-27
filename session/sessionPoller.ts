@@ -14,6 +14,8 @@ import { useSettings } from "@/stores/settingsStore";
 import { useChat } from "@/stores/chatStore";
 import { useAudio } from "@/stores/audioStore";
 import { useTimeline } from "@/stores/timelineStore";
+import { maybeRefreshQuickMessages, resetQuickAnchor } from "./quickGenerator";
+import { useQuick } from "@/stores/quickStore";
 
 /**
  * Background poller. One GPS fix every POLL_INTERVAL_MS, fed into:
@@ -82,6 +84,12 @@ async function tick() {
     useMode.getState().evaluateTransitions(snapshot, { conversationAutoEnabled });
 
     await updateLiveContext(loc, snapshot);
+
+    // Quick Messages: regen the suggestion batch if context shifted enough.
+    // The generator suppresses itself when not in Conversation Mode and
+    // respects its own cooldown, so this is safe to call every tick.
+    maybeRefreshQuickMessages(snapshot);
+
     runStuckStateWatchdog();
   } catch {
     // swallow — poll is best-effort; next tick will try again
@@ -214,6 +222,10 @@ export function startSessionPoll() {
   // signal starts cold. Without this, the first tick of a new session could
   // inherit "windowed speed = 30 mph" from yesterday's drive home.
   resetMotionBuffer();
+  // Drop any cached Quick Messages — last session's suggestions are stale
+  // relative to a fresh location/weather/trip context.
+  useQuick.getState().clear();
+  resetQuickAnchor();
   // Fire an immediate tick so driving is detectable as soon as the session
   // begins. Subsequent ticks run on the interval.
   tick();
@@ -229,4 +241,6 @@ export function stopSessionPoll() {
   bannerGeocodeCache = null;
   lastLoggedPlace = null;
   resetMotionBuffer();
+  useQuick.getState().clear();
+  resetQuickAnchor();
 }

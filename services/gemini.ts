@@ -342,6 +342,144 @@ export async function researchPhotoSubject(
   return analyzeScene({ prompt, images: [image], signal });
 }
 
+// ── generateQuickMessages (flash) ────────────────────────────────
+//
+// Quick Messages are Conversation-Mode-only suggestions Tim can tap to send
+// pre-written first-person messages to Eli without typing. Gemini Flash
+// generates 16 of them at a time based on the current sensor snapshot,
+// recent location trajectory, time of day, and Gemini's own knowledge of
+// the surrounding area (landmarks, history, regional culture).
+//
+// Each suggestion holds:
+//   - `icon`:  single emoji shown on the card
+//   - `label`: short tap-target text (≤ 40 chars)
+//   - `body`:  the full first-person Tim message that gets sent on tap,
+//              including embedded `*emote*` markers. Tim's normal asterisk
+//              emotes flow through Gemini's send-time assembler as inline
+//              emotes; the assembler's leading ambient emote (from sensors)
+//              still gets prepended, so the final message reads as
+//              `_(*ambient*)_ *Tim's micro-emote* dialog`.
+
+export interface QuickMessage {
+  icon: string;
+  label: string;
+  body: string;
+  /** Coarse category for variety analysis. Currently informational only —
+   *  Gemini emits it so we can avoid showing four "landmark" cards in a row. */
+  category: "landmark" | "weather" | "traffic" | "history" | "ambient" | "banter" | "other";
+}
+
+export interface GenerateQuickMessagesInput {
+  /** Plain-text sensor snapshot — same shape as assembleEmote. */
+  sensorSnapshot: string;
+  /** Optional running context: "headed west on I-44, 2h into the drive." */
+  tripContext?: string;
+  /** Recent message history to avoid suggestions Tim or Eli just touched on. */
+  history?: Content[];
+  /** Cap on how many suggestions to generate. UI uses 16 (4 pages × 4). */
+  count?: number;
+  signal?: AbortSignal;
+}
+
+export async function generateQuickMessages(
+  input: GenerateQuickMessagesInput
+): Promise<QuickMessage[]> {
+  const count = input.count ?? 16;
+  const prompt =
+    "You are generating Quick Messages for Tim's Conversation Mode. Tim is " +
+    "in a vehicle (or otherwise hands-busy) and can't type — he taps a card " +
+    "to instantly send a pre-written first-person observation to Eli, his " +
+    "AI companion. Each card needs to feel like something Tim would naturally " +
+    "say in this moment.\n\n" +
+    `Generate exactly ${count} varied suggestions covering a mix of:\n` +
+    "- Landmarks visible or coming up (signs, bridges, monuments, skylines)\n" +
+    "- Weather, traffic, ETA, or driving observations\n" +
+    "- History or trivia about where Tim is right now — towns, regions, " +
+    "famous people, regional culture, food, lore. Lean into this; your " +
+    "training has more depth than Tim does on most places.\n" +
+    "- Ambient observations (sky color, light quality, song on the radio)\n" +
+    "- Conversation starters tied to the moment (something to ask Eli)\n\n" +
+    "RULES:\n" +
+    "- First person, Tim's voice, present tense\n" +
+    "- Each `body` must include ONE inline `*action*` emote, then dialog. " +
+    "Example: `*I glance out at the bend in the river* The Mississippi looks " +
+    "wider than I remembered, Eli.`\n" +
+    "- `label` is the short card text (max 40 chars). Use sentence fragments " +
+    "— \"We're passing the Gateway Arch\" / \"It just started raining here\" / " +
+    "\"This is Mark Twain country\"\n" +
+    "- Pick ONE emoji per card that fits the topic\n" +
+    "- DO NOT repeat what's already in chat history\n" +
+    "- DO NOT include _(*…*)_ wrapper format; only single asterisks for the " +
+    "inline emote\n" +
+    "- DO NOT mention Tim by name in the body (he IS Tim)\n\n" +
+    "Respond as a single JSON object with key `suggestions` holding an array. " +
+    "Each entry: { icon, label, body, category }. category ∈ {landmark, " +
+    "weather, traffic, history, ambient, banter, other}. No preamble, no " +
+    "markdown fence, just the JSON object.\n\n" +
+    "[SENSOR SNAPSHOT]\n" +
+    input.sensorSnapshot +
+    (input.tripContext ? `\n\n[TRIP CONTEXT]\n${input.tripContext}` : "");
+
+  const contents: Content[] = [
+    ...(input.history ?? []),
+    { role: "user", parts: [{ text: prompt }] },
+  ];
+
+  // 20s — generation of 16 short items on Flash is usually ~3-5s; 20s leaves
+  // room for cellular slowness without freezing the Conversation Mode UI.
+  const result = await withDeadline(
+    withRetry(() => flash().generateContent({ contents })),
+    20_000,
+    "generateQuickMessages",
+    input.signal
+  );
+  const raw = result.response.text().trim();
+  return parseQuickMessages(raw);
+}
+
+/**
+ * Parse Gemini's JSON response. Tolerates markdown fence wrappers Gemini
+ * occasionally adds despite the "no markdown" instruction, and filters out
+ * malformed entries rather than throwing — a partial batch is better than
+ * no Quick Messages at all.
+ */
+function parseQuickMessages(raw: string): QuickMessage[] {
+  // Strip a ```json …``` fence if Gemini added one.
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+  const jsonText = fenced ? fenced[1] : raw;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(jsonText);
+  } catch (err) {
+    throw new Error(
+      `generateQuickMessages: invalid JSON. Raw: ${raw.slice(0, 200)}`
+    );
+  }
+  const arr = (parsed as { suggestions?: unknown }).suggestions;
+  if (!Array.isArray(arr)) {
+    throw new Error("generateQuickMessages: missing suggestions[] in response");
+  }
+  const valid: QuickMessage[] = [];
+  for (const entry of arr) {
+    if (!entry || typeof entry !== "object") continue;
+    const e = entry as Partial<QuickMessage>;
+    if (
+      typeof e.icon !== "string" ||
+      typeof e.label !== "string" ||
+      typeof e.body !== "string"
+    ) {
+      continue;
+    }
+    valid.push({
+      icon: e.icon,
+      label: e.label.slice(0, 60),
+      body: e.body,
+      category: (e.category as QuickMessage["category"]) ?? "other",
+    });
+  }
+  return valid;
+}
+
 // ── draftJournal (flash) ─────────────────────────────────────────
 
 export async function draftJournal(sessionSummary: string): Promise<string> {

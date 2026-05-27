@@ -19,24 +19,33 @@ import { C } from "@/constants/theme";
 import { useChat } from "@/stores/chatStore";
 import { useMode } from "@/stores/modeStore";
 import { useAudio } from "@/stores/audioStore";
+import { useRecovery } from "@/stores/recoveryStore";
 import {
   ensureRecordingPermission,
   setPlaybackAudioMode,
   setRecordingAudioMode,
   VOICE_RECORDING_PRESET,
 } from "@/services/audio";
+import { abortPipeline } from "@/session/abortPipeline";
+import { QuickMessages } from "./QuickMessages";
 
 const KEEP_AWAKE_TAG = "eli-bridge-conversation";
 
 /**
- * Full-screen Conversation Mode overlay (formerly Drive Mode). Any tap on the
- * body toggles recording — tap to start, tap to stop+send. No small buttons
- * to aim at. Eli's replies are always spoken through the phone speaker via
- * ElevenLabs so Tim never needs to read the screen.
+ * Full-screen Conversation Mode overlay (formerly Drive Mode). Tap the
+ * central mic zone to start recording, tap again to stop and send. Eli's
+ * replies are always spoken through the phone speaker via ElevenLabs.
+ *
+ * Layout (top to bottom):
+ *   1. Top status strip — time / location / weather chips
+ *   2. Action row — "Conversation Mode" label + Abort pill + Stop button
+ *   3. Central tap zone — large mic art + status line
+ *   4. Quick Messages panel — tap-to-send AI-generated suggestion cards
  *
  * Enter via useMode.enterConversationManual() or auto-trigger (sustained
- * IN_VEHICLE — still the underlying trigger, just renamed at the UI). Exit
- * via the small Stop button at the top.
+ * IN_VEHICLE — still the underlying trigger). Exit via the Stop button at
+ * the top. Abort, distinct from Stop, kills any in-flight Gemini /
+ * Kindroid / ElevenLabs work but keeps the overlay open.
  */
 export function ConversationOverlay() {
   const conversation = useMode((s) => s.conversation);
@@ -94,9 +103,8 @@ export function ConversationOverlay() {
   }, [conversation]);
 
   // Force the audio session into playback mode on entry so Eli's TTS routes
-  // through the loudspeaker (not the earpiece-friendly comm path that the
-  // session-start setupBridgeAudioMode leaves us in). Restore recording mode
-  // on exit so the regular InputBar PTT keeps working.
+  // through the loudspeaker. Restore recording mode on exit so the regular
+  // InputBar PTT keeps working.
   useEffect(() => {
     if (!conversation) return;
     setPlaybackAudioMode();
@@ -105,15 +113,8 @@ export function ConversationOverlay() {
     };
   }, [conversation]);
 
-  // Force-speak every new Eli reply while Conversation Mode is on. Watches the
-  // latest Eli message id; when it changes, auto-triggers ElevenLabs playback.
-  //
-  // Freshness gate: only auto-play messages that are <60s old. Prevents the
-  // "audio replays out of nowhere" failure mode where some upstream state
-  // change (queue drain, cache update, store re-emit) walks the loop and
-  // matches an OLD Eli message with a stale or cleared lastAutoSpokenRef.
-  // The ref alone isn't enough — if it's ever wrong, an old message replays.
-  // The freshness gate is a bound on how wrong things can get.
+  // Force-speak every new Eli reply while Conversation Mode is on. Same
+  // freshness gate as before — only auto-play messages <60s old.
   const lastAutoSpokenRef = useRef<string | null>(null);
   const playEli = useAudio((s) => s.playEli);
   useEffect(() => {
@@ -127,8 +128,6 @@ export function ConversationOverlay() {
       const msgTs = extractTimestampFromId(m.id);
       const ageMs = msgTs !== null ? Date.now() - msgTs : null;
       if (ageMs !== null && ageMs > 60_000) {
-        // Stale — claim it without auto-playing, so future ticks don't
-        // keep examining the same old message.
         console.log(
           `[conv] auto-speak SKIP (stale) msg=${m.id} age=${ageMs}ms`
         );
@@ -153,9 +152,34 @@ export function ConversationOverlay() {
   const audioGenerating = audioEntry?.status === "generating";
   const audioPlaying = audioEntry?.status === "playing";
 
-  // Pulse animation on the status line while Gemini/Kindroid/ElevenLabs are
-  // working so the screen feels alive (Tim can glance at it without pulling
-  // focus from the road). Steady (no pulse) while Eli is actually speaking.
+  // ── Abort visibility ─────────────────────────────────────────────
+  // Same predicate as the header — anything in flight makes the pill light up.
+  const sceneStatus = useChat((s) => s.sceneStatus);
+  const recoveryFailure = useRecovery((s) => s.failure);
+  const abortActive =
+    chatStatus === "assembling" ||
+    chatStatus === "sending" ||
+    sceneStatus === "analyzing" ||
+    audioGenerating ||
+    audioPlaying ||
+    recoveryFailure !== null;
+
+  // ── Live status strip data ──────────────────────────────────────
+  const liveContext = useChat((s) => s.liveContext);
+  // The poller writes chip strings like ["📍 Lynchburg, VA", "🌤 58°F clouds",
+  // "🚶 still"]. Pull the first place chip + first weather chip out for the
+  // top status strip; activity stays in the live context banner outside the
+  // overlay so the strip doesn't double-render it.
+  const placeChip = liveContext.find((c) => c.startsWith("📍")) ?? null;
+  const weatherChip = liveContext.find((c) => c.startsWith("🌤")) ?? null;
+  const [clockText, setClockText] = useState(() => formatClock(new Date()));
+  useEffect(() => {
+    if (!conversation) return;
+    const id = setInterval(() => setClockText(formatClock(new Date())), 30_000);
+    return () => clearInterval(id);
+  }, [conversation]);
+
+  // Pulse animation while a stage is running.
   const pulse = useRef(new Animated.Value(1)).current;
   const waiting =
     chatStatus === "assembling" ||
@@ -187,12 +211,8 @@ export function ConversationOverlay() {
     return () => loop.stop();
   }, [waiting, pulse]);
 
-  const handleTap = async () => {
-    // Block taps while Gemini is assembling or Kindroid is relaying.
+  const handleCentralTap = async () => {
     if (chatStatus === "assembling" || chatStatus === "sending") return;
-
-    // While ElevenLabs is generating, the audio isn't playable yet — no-op.
-    // As soon as it starts playing, a tap should interrupt + return to idle.
     if (audioGenerating) return;
     if (audioPlaying) {
       stopAudio();
@@ -200,7 +220,6 @@ export function ConversationOverlay() {
     }
 
     if (recording) {
-      // Stop + send
       if (timerRef.current) {
         clearInterval(timerRef.current);
         timerRef.current = null;
@@ -210,8 +229,6 @@ export function ConversationOverlay() {
         const uri = recorderRef.current.uri;
         setRecording(false);
         setElapsed(0);
-        // Flip back to playback mode so Eli's incoming TTS reply hits the
-        // loudspeaker. Fire-and-forget — don't block the send on it.
         setPlaybackAudioMode();
         if (uri) {
           addAttachment({
@@ -220,7 +237,6 @@ export function ConversationOverlay() {
             mimeType: "audio/mp4",
             duration: Math.max(1, elapsed),
           });
-          // Empty dialog — audio is the message
           await sendMessage("");
         }
       } catch (err) {
@@ -229,7 +245,6 @@ export function ConversationOverlay() {
       return;
     }
 
-    // Start recording
     setError(null);
     const granted = await ensureRecordingPermission();
     if (!granted) {
@@ -237,9 +252,6 @@ export function ConversationOverlay() {
       return;
     }
     try {
-      // Switch the audio session into recording mode before grabbing the
-      // mic. Without this the prepareToRecordAsync call below can fail
-      // silently after a TTS playback left the session in playback mode.
       await setRecordingAudioMode();
       await beginRecordingCycle(recorderRef.current);
       setRecording(true);
@@ -270,19 +282,49 @@ export function ConversationOverlay() {
   return (
     <Modal visible={conversation} animationType="fade" statusBarTranslucent>
       <SafeAreaView style={styles.root} edges={["top", "bottom", "left", "right"]}>
-        {/* Top strip */}
-        <View style={styles.topStrip}>
-          <Text style={styles.modeLabel}>🎙 Conversation Mode</Text>
-          <Pressable onPress={exitConversation} style={styles.exitBtn} hitSlop={16}>
-            <Text style={{ color: C.red, fontSize: 13, fontWeight: "600" }}>
-              Stop
+        {/* ── Top status strip — clock · place · weather ── */}
+        <View style={styles.statusStrip}>
+          <View style={styles.statusChip}>
+            <Text style={styles.statusChipIcon}>🕐</Text>
+            <Text style={styles.statusChipText}>{clockText}</Text>
+          </View>
+          <View style={[styles.statusChip, { flex: 1.4 }]}>
+            <Text style={styles.statusChipText} numberOfLines={1}>
+              {placeChip ?? "📍 Locating…"}
             </Text>
+          </View>
+          <View style={styles.statusChip}>
+            <Text style={styles.statusChipText} numberOfLines={1}>
+              {weatherChip ?? "🌤 —"}
+            </Text>
+          </View>
+        </View>
+
+        {/* ── Action row — mode label · Abort · Stop ── */}
+        <View style={styles.actionRow}>
+          <View style={styles.modeLabelRow}>
+            <Text style={styles.modeLabelIcon}>💬</Text>
+            <Text style={styles.modeLabel}>Conversation Mode</Text>
+          </View>
+          <Pressable
+            onPress={() => {
+              if (!abortActive) return;
+              abortPipeline("conversation-abort");
+            }}
+            style={[styles.abortBtn, !abortActive && { opacity: 0.35 }]}
+            accessibilityLabel="Abort current operation"
+          >
+            <Text style={styles.abortBtnIcon}>⚠</Text>
+            <Text style={styles.abortBtnText}>Abort</Text>
+          </Pressable>
+          <Pressable onPress={exitConversation} style={styles.stopBtn} hitSlop={8}>
+            <Text style={styles.stopBtnIcon}>⏹</Text>
+            <Text style={styles.stopBtnText}>Stop</Text>
           </Pressable>
         </View>
 
-        {/* Body — tap anywhere. No conversation text; feedback is via the
-            central indicator, the flashing status line, and ElevenLabs audio. */}
-        <Pressable onPress={handleTap} style={styles.body}>
+        {/* ── Central tap zone — big mic + status line ── */}
+        <Pressable onPress={handleCentralTap} style={styles.tapZone}>
           <View
             style={[
               styles.indicator,
@@ -314,6 +356,11 @@ export function ConversationOverlay() {
 
           {error ? <Text style={styles.error}>⚠ {error}</Text> : null}
         </Pressable>
+
+        {/* ── Quick Messages — sits below the tap zone, not a tap target ── */}
+        <View style={styles.quickContainer}>
+          <QuickMessages />
+        </View>
       </SafeAreaView>
     </Modal>
   );
@@ -323,6 +370,14 @@ function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, "0");
   const s = (seconds % 60).toString().padStart(2, "0");
   return `${m}:${s}`;
+}
+
+function formatClock(d: Date): string {
+  const h = d.getHours();
+  const m = String(d.getMinutes()).padStart(2, "0");
+  const hr12 = ((h + 11) % 12) + 1;
+  const ampm = h >= 12 ? "PM" : "AM";
+  return `${hr12}:${m} ${ampm}`;
 }
 
 /** Pulls the trailing Date.now() out of message IDs like "eli-1714671234567". */
@@ -338,11 +393,6 @@ function extractTimestampFromId(id: string): number | null {
  * doesn't reliably reset after stop() across multiple record cycles in one
  * session — prepareToRecordAsync or record() throws IllegalStateException
  * because the native MediaRecorder is in a stale state.
- *
- * Defense: always stop() first to force the recorder back to a clean state
- * (a no-op throw when nothing's recording, swallowed). Then prepare + record.
- * If record() still throws, hard-reset once more and retry — one retry only,
- * then surface the error so the watchdog / Tim's tap can recover.
  */
 async function beginRecordingCycle(
   recorder: { prepareToRecordAsync: () => Promise<unknown>; record: () => void; stop: () => Promise<unknown> }
@@ -361,44 +411,94 @@ async function beginRecordingCycle(
     await attempt();
   } catch (firstErr) {
     console.warn("[conv] recording cycle failed once, retrying:", firstErr);
-    // Brief pause to let the native recorder settle before the retry.
     await new Promise((r) => setTimeout(r, 200));
-    await attempt(); // if this throws, it propagates to the caller's catch
+    await attempt();
   }
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
-  topStrip: {
+
+  statusStrip: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  statusChip: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.border,
+    backgroundColor: C.raised,
+  },
+  statusChipIcon: { fontSize: 12, color: C.muted },
+  statusChipText: { color: C.text, fontSize: 12, fontWeight: "500" },
+
+  actionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
     paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: C.border,
+    gap: 8,
   },
-  modeLabel: { color: C.accent, fontSize: 14, fontWeight: "700" },
-  exitBtn: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: C.red + "66",
-    backgroundColor: C.red + "18",
-  },
-  body: {
+  modeLabelRow: {
     flex: 1,
-    paddingHorizontal: 24,
-    paddingVertical: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  modeLabelIcon: { fontSize: 16, color: C.accent },
+  modeLabel: { color: C.accent, fontSize: 15, fontWeight: "700" },
+
+  abortBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.red + "55",
+    backgroundColor: C.red + "12",
+  },
+  abortBtnIcon: { fontSize: 12, color: C.red },
+  abortBtnText: { fontSize: 12, color: C.red, fontWeight: "700" },
+
+  stopBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: C.red,
+    backgroundColor: C.red + "22",
+  },
+  stopBtnIcon: { fontSize: 12, color: C.red },
+  stopBtnText: { fontSize: 12, color: C.red, fontWeight: "700" },
+
+  tapZone: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    gap: 28,
+    paddingHorizontal: 24,
+    gap: 24,
   },
   indicator: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
+    width: 180,
+    height: 180,
+    borderRadius: 90,
     borderWidth: 3,
     borderColor: C.accent + "55",
     backgroundColor: C.accent + "14",
@@ -413,17 +513,13 @@ const styles = StyleSheet.create({
     borderColor: C.accent,
     backgroundColor: C.accent + "26",
   },
-  indicatorGlyph: {
-    fontSize: 84,
-  },
-  statusLine: {
-    fontSize: 16,
-    color: C.textDim,
-    textAlign: "center",
-  },
-  error: {
-    color: C.red,
-    fontSize: 13,
-    marginTop: 8,
+  indicatorGlyph: { fontSize: 70 },
+  statusLine: { fontSize: 14, color: C.textDim, textAlign: "center" },
+  error: { color: C.red, fontSize: 13, marginTop: 8 },
+
+  quickContainer: {
+    borderTopWidth: 1,
+    borderTopColor: C.border,
+    backgroundColor: C.bg,
   },
 });
