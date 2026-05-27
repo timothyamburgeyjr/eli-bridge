@@ -85,6 +85,14 @@ export interface SendMessageOptions {
   linkDescription?: string;
   videoUrl?: string;
   videoDescription?: string;
+  /**
+   * Override the default Kindroid send timeout. Use this for sends that
+   * include a lot of attached context (video → 5 image_urls), where the
+   * default 90s sometimes fires before Kindroid finishes processing —
+   * causing a recovery popup → resubmit → Kindroid receiving the message
+   * twice. Caller passes ms; pass undefined to use the default.
+   */
+  timeoutMs?: number;
 }
 
 /**
@@ -121,7 +129,7 @@ export async function sendMessage(
   const text = await kindroidRequest({
     path: "/send-message",
     body,
-    timeoutMs: TIMEOUT_SEND,
+    timeoutMs: options.timeoutMs ?? TIMEOUT_SEND,
     expectPlainText: true,
   });
   return text.trim();

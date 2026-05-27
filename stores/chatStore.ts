@@ -1011,9 +1011,18 @@ export const useChat = create<ChatState>((set, get) => ({
           }
         }
 
+        // Bump Kindroid timeout for video sends. Default is 90s; video
+        // adds 5 image_urls + a richer emote, and Kindroid's processing
+        // can run ~60-120s. The default tripped Tim's previous send into
+        // a timeout → recovery popup → resubmit → Kindroid received the
+        // message twice. 180s gives the first send room to land.
+        const hasVideoAttached = attachments.some((a) => a.kind === "video");
         let eliRaw: string;
         try {
-          eliRaw = await kindroidSend(finalRaw, { imageUrls });
+          eliRaw = await kindroidSend(finalRaw, {
+            imageUrls,
+            timeoutMs: hasVideoAttached ? 180_000 : undefined,
+          });
         } catch (err) {
           // User aborted while Kindroid was in flight — state already
           // cleared by abortPipeline. Don't surface to the recovery popup.

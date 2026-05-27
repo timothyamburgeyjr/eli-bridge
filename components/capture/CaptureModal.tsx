@@ -216,11 +216,15 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
   // store the awaiter as a Promise here so the Stop tap can call
   // stopRecording() without needing to know the resolve callback.
   const handleVideoTap = async () => {
-    if (!cameraRef.current || busy) return;
+    if (!cameraRef.current) return;
 
     if (videoRecording) {
-      // Stop in progress — recordAsync's promise (set in the start branch)
-      // will resolve with the URI, and the duration timer is cleared there.
+      // STOP path — do NOT gate on `busy`. While recording, busy is true
+      // because we set it that way at start; gating on busy here means the
+      // user's stop-tap returns immediately and stopRecording never fires.
+      // recordAsync's promise (awaited in the start branch below) resolves
+      // when the recording is actually finalized.
+      console.log("[video] manual stop tap fired");
       try {
         cameraRef.current.stopRecording();
       } catch (err) {
@@ -229,28 +233,41 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
       return;
     }
 
+    if (busy) return; // can't START while busy with something else
+
     setBusy(true);
     try {
       setVideoRecording(true);
       setVideoElapsed(0);
+      // Timestamp-based elapsed tracking. The prior pattern (incrementing
+      // a counter inside a setState callback) was unreliable for the
+      // auto-stop trigger — under React batching, the comparison fired
+      // multiple times per tick and the stop-call timing drifted. Now
+      // we read Date.now() against a captured start time, which is
+      // monotonic and unambiguous.
+      const startMs = Date.now();
       videoTimerRef.current = setInterval(() => {
-        setVideoElapsed((n) => {
-          // Auto-stop at the max — recordAsync ALSO honors maxDuration
-          // but the UI counter shouldn't visually keep climbing past it.
-          if (n + 1 >= VIDEO_MAX_DURATION_SEC) {
-            try {
-              cameraRef.current?.stopRecording();
-            } catch {
-              // already stopped
-            }
+        const elapsed = Math.floor((Date.now() - startMs) / 1000);
+        setVideoElapsed(elapsed);
+        if (elapsed >= VIDEO_MAX_DURATION_SEC) {
+          console.log(`[video] auto-stop firing at ${elapsed}s`);
+          if (videoTimerRef.current) {
+            clearInterval(videoTimerRef.current);
+            videoTimerRef.current = null;
           }
-          return n + 1;
-        });
-      }, 1000);
+          try {
+            cameraRef.current?.stopRecording();
+          } catch (err) {
+            console.warn("[video] auto-stop stopRecording threw:", err);
+          }
+        }
+      }, 250); // tick every 250ms — smoother counter + tighter auto-stop accuracy
 
       const result = await cameraRef.current.recordAsync({
         maxDuration: VIDEO_MAX_DURATION_SEC,
       });
+      const elapsedAtStop = Math.floor((Date.now() - startMs) / 1000);
+      console.log(`[video] recordAsync resolved at ${elapsedAtStop}s`);
 
       if (videoTimerRef.current) clearInterval(videoTimerRef.current);
       videoTimerRef.current = null;
@@ -261,7 +278,7 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
           kind: "video",
           localPath: result.uri,
           mimeType: "video/mp4",
-          duration: videoElapsed || 1,
+          duration: Math.max(1, elapsedAtStop),
         });
         onClose();
       }
