@@ -10,6 +10,7 @@ export interface AssembleOptions {
   timDialog: string;
   images?: { mimeType: string; data: string }[];
   audios?: { mimeType: string; data: string }[];
+  videos?: { mimeType: string; data: string }[];
   history?: Content[];
   /**
    * One-shot scene memo from Scene Capture. Prepended to the sensor snapshot
@@ -97,6 +98,7 @@ export class EmoteAssembler {
       timDialog: opts.timDialog,
       images: opts.images,
       audios: opts.audios,
+      videos: opts.videos,
       history: opts.history,
       signal: opts.signal,
     });

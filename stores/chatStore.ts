@@ -8,6 +8,7 @@ import { parseAssembledMessage } from "@/services/gemini";
 import { sendMessage as kindroidSend, updateScene as kindroidUpdateScene } from "@/services/kindroid";
 import { analyzeScene as geminiAnalyzeScene } from "@/services/gemini";
 import { uploadImage, isImageServerConfigured } from "@/services/imageServer";
+import { extractFiveFrames } from "@/session/videoThumbnails";
 import { convertTimAsterisksToEmotes } from "@/components/chat/FormattedBody";
 import {
   StagedAttachment,
@@ -711,10 +712,14 @@ export const useChat = create<ChatState>((set, get) => ({
       const audios = await Promise.all(
         attachments.filter((a) => a.kind === "audio").map(toInlineBlob)
       );
+      const videos = await Promise.all(
+        attachments.filter((a) => a.kind === "video").map(toInlineBlob)
+      );
 
       // ── Step 1b: On-device voice + face identification
       const audioAttachments = attachments.filter((a) => a.kind === "audio");
       const imageAttachments = attachments.filter((a) => a.kind === "image");
+      const videoAttachments = attachments.filter((a) => a.kind === "video");
 
       // Tim (the user / "self") is never labeled as a "speaker nearby" or
       // pushed through the Obsidian-context lookup — his audio already
@@ -840,6 +845,7 @@ export const useChat = create<ChatState>((set, get) => ({
           timDialog: text,
           images,
           audios,
+          videos,
           history,
           sceneMemo,
           briefingContext,
@@ -961,16 +967,46 @@ export const useChat = create<ChatState>((set, get) => ({
         set({ status: "sending", sendStartedAt: Date.now() });
 
         // Upload any images to the self-hosted image server for image_urls.
+        // Video attachments contribute too: we extract 5 equidistant frames
+        // from each clip and upload them as additional image_urls so Eli
+        // gets a visual sequence representing the video alongside the
+        // Gemini-built emote that describes the motion + audio.
         let imageUrls: string[] | undefined;
-        if (attachments.some((a) => a.kind === "image") && isImageServerConfigured()) {
+        const imageAtts = attachments.filter((a) => a.kind === "image");
+        const videoAtts = attachments.filter((a) => a.kind === "video");
+        if (
+          (imageAtts.length > 0 || videoAtts.length > 0) &&
+          isImageServerConfigured()
+        ) {
           imageUrls = [];
-          for (const att of attachments.filter((a) => a.kind === "image")) {
+          for (const att of imageAtts) {
             try {
               const result = await uploadImage(att.localPath);
               imageUrls.push(result.url);
             } catch (err) {
               // Non-fatal — Eli just won't see that image
               console.warn("Image server upload failed", err);
+            }
+          }
+          for (const att of videoAtts) {
+            // duration is in seconds in StagedAttachment; thumbnail extractor
+            // wants ms. Default to 1s if duration is somehow missing.
+            const durationMs = Math.max(1000, (att.duration ?? 1) * 1000);
+            try {
+              const frames = await extractFiveFrames(att.localPath, durationMs);
+              for (const frame of frames) {
+                try {
+                  const result = await uploadImage(frame.uri);
+                  imageUrls.push(result.url);
+                } catch (err) {
+                  console.warn("Video frame upload failed", err);
+                }
+              }
+            } catch (err) {
+              // Non-fatal — Gemini already saw the full video for emote
+              // assembly, so Eli still gets a rich emote even without
+              // visual frames. He just doesn't see the stills.
+              console.warn("Video thumbnail extraction failed:", err);
             }
           }
         }

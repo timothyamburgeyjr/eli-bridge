@@ -323,6 +323,7 @@ export default function Main() {
         onSceneTap={() => setCaptureMode("scene")}
         onQuickMessagesTap={() => setQuickPopupOpen(true)}
         onPhotoTap={() => setCaptureMode("photo")}
+        onVideoTap={() => setCaptureMode("video")}
       />
       </KeyboardAvoidingView>
 

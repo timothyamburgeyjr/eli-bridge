@@ -188,12 +188,24 @@ export function InputBar({
       <View style={styles.captureRow}>
         <Pressable
           onPress={() => onVideoTap?.()}
-          disabled={true}
-          style={[styles.captureBtn, styles.captureBtnDisabled]}
-          accessibilityLabel="Video (coming soon)"
+          disabled={!onVideoTap}
+          style={[styles.captureBtn, !onVideoTap && styles.captureBtnDisabled]}
+          accessibilityLabel="Record video"
         >
-          <Text style={[styles.captureIcon, styles.captureIconDisabled]}>🎥</Text>
-          <Text style={[styles.captureLabel, styles.captureLabelDisabled]}>
+          <Text
+            style={[
+              styles.captureIcon,
+              !onVideoTap && styles.captureIconDisabled,
+            ]}
+          >
+            🎥
+          </Text>
+          <Text
+            style={[
+              styles.captureLabel,
+              !onVideoTap && styles.captureLabelDisabled,
+            ]}
+          >
             Video
           </Text>
         </Pressable>

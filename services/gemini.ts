@@ -104,9 +104,13 @@ export interface AssembleEmoteInput {
   sensorSnapshot: string;
   /** Tim's raw dialog/mic text, verbatim. Empty if Tim sent audio only. */
   timDialog: string;
-  /** Optional base64-encoded attachments. Multiple of each type allowed. */
+  /** Optional base64-encoded attachments. Multiple of each type allowed.
+   *  Videos go inline as well (Gemini 2.5 Flash supports video input);
+   *  practical size cap is ~20MB, enforced upstream by capping recording
+   *  duration + quality. */
   images?: { mimeType: string; data: string }[];
   audios?: { mimeType: string; data: string }[];
+  videos?: { mimeType: string; data: string }[];
   /** Prior turns in this session in chronological order. */
   history?: Content[];
   /** Abort signal — wired into the deadline race so a user abort wakes us
@@ -118,6 +122,19 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
   const parts: Part[] = [];
 
   const hasAudio = (input.audios?.length ?? 0) > 0;
+  const hasVideo = (input.videos?.length ?? 0) > 0;
+  const videoHint = hasVideo
+    ? "\n\n[VIDEO HANDLING — IMPORTANT]\n" +
+      "Tim's video clip is attached. Build the leading ambient emote around " +
+      "what HAPPENS across the clip — movement, what comes into and out of " +
+      "frame, sounds, mood. Capture the arc, not just one frame. Tim took " +
+      "this video FROM his point of view, so describe it first-person, like " +
+      "he's narrating: \"I pan across the kitchen and Luna is on the couch\", " +
+      "not \"the video shows…\". The video's audio is part of the clip — " +
+      "transcribe any of Tim's narration as his dialog (same rules as the " +
+      "audio handling above) and weave ambient sound into the emote.\n"
+    : "";
+
   const audioHint = hasAudio
     ? "\n\n[AUDIO HANDLING — IMPORTANT]\n" +
       "Tim's audio is attached. Transcribe his speech as dialog with high fidelity. " +
@@ -154,13 +171,16 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
   const inputLabel = input.timDialog
     ? `[TIM'S INPUT]\n${input.timDialog}`
     : `[TIM'S INPUT]\n(Tim sent audio only — transcribe and build Tim's dialog from the audio.)`;
-  const header = `[SENSOR SNAPSHOT]\n${input.sensorSnapshot}\n\n${inputLabel}${audioHint}${outputScope}`;
+  const header = `[SENSOR SNAPSHOT]\n${input.sensorSnapshot}\n\n${inputLabel}${audioHint}${videoHint}${outputScope}`;
   parts.push({ text: header });
   for (const img of input.images ?? []) {
     parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
   }
   for (const audio of input.audios ?? []) {
     parts.push({ inlineData: { mimeType: audio.mimeType, data: audio.data } });
+  }
+  for (const video of input.videos ?? []) {
+    parts.push({ inlineData: { mimeType: video.mimeType, data: video.data } });
   }
 
   const contents: Content[] = [...(input.history ?? []), { role: "user", parts }];

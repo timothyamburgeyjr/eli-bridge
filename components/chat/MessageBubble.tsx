@@ -63,6 +63,7 @@ export function TimBubble({
   const body = raw ?? composeRaw(emote, dialog);
   const dimmed = queued || failed;
   const images = (attachments ?? []).filter((a) => a.type === "image");
+  const videos = (attachments ?? []).filter((a) => a.type === "video");
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [lookupUri, setLookupUri] = useState<string | null>(null);
   return (
@@ -114,6 +115,29 @@ export function TimBubble({
                   >
                     <Text style={styles.lookupOverlayText}>🔍</Text>
                   </Pressable>
+                </View>
+              ))}
+            </View>
+          )}
+          {videos.length > 0 && (
+            // Video attachments don't render an inline player — the 5
+            // extracted frames + Gemini's emote-from-video cover what Eli
+            // sees. Here we just show a compact "video attached" badge per
+            // clip with its duration so Tim can scroll back and remember
+            // a message had a video.
+            <View
+              style={[
+                { gap: 6 },
+                body.trim().length > 0 || images.length > 0 ? { marginTop: 8 } : null,
+              ]}
+            >
+              {videos.map((v, i) => (
+                <View key={i} style={styles.videoBadge}>
+                  <Text style={styles.videoBadgeIcon}>🎥</Text>
+                  <Text style={styles.videoBadgeText}>
+                    Video
+                    {v.duration ? ` · ${v.duration}s` : ""}
+                  </Text>
                 </View>
               ))}
             </View>
@@ -314,6 +338,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   lookupOverlayText: { fontSize: 14 },
+  videoBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.accent + "55",
+    backgroundColor: C.accent + "14",
+  },
+  videoBadgeIcon: { fontSize: 16 },
+  videoBadgeText: { color: C.accent, fontSize: 12, fontWeight: "700" },
   previewBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.95)",

@@ -26,7 +26,14 @@ import {
   AUDIOSNAP_DURATION_SEC,
 } from "@/services/audio";
 
-export type CaptureMode = "photo" | "audio" | "scene";
+export type CaptureMode = "photo" | "video" | "audio" | "scene";
+
+// Hard caps on video capture. 480p keeps file size manageable for inline
+// upload to Gemini Flash (rule of thumb: ~1MB per second at 480p). 15s
+// max duration keeps the file under ~15-20MB which is well within Gemini's
+// inline content limit. Anything longer would need the Files API path.
+const VIDEO_QUALITY = "480p" as const;
+const VIDEO_MAX_DURATION_SEC = 15;
 
 interface Props {
   visible: boolean;
@@ -52,6 +59,9 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
   const [flashing, setFlashing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [facing, setFacing] = useState<"back" | "front">("back");
+  const [videoRecording, setVideoRecording] = useState(false);
+  const [videoElapsed, setVideoElapsed] = useState(0);
+  const videoTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const recorder = useAudioRecorder(VOICE_RECORDING_PRESET);
   const recorderRef = useRef(recorder);
@@ -68,6 +78,8 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
       setSceneNote("");
       setAudioRecording(false);
       setAudioElapsed(0);
+      setVideoRecording(false);
+      setVideoElapsed(0);
       setBusy(false);
       setFacing("back"); // always start on rear-cam; flip is per-session
     }
@@ -76,11 +88,14 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
   useEffect(() => {
     return () => {
       if (audioTimerRef.current) clearInterval(audioTimerRef.current);
+      if (videoTimerRef.current) clearInterval(videoTimerRef.current);
     };
   }, []);
 
-  const needsCamera = mode === "photo" || mode === "scene";
-  const needsMic = mode === "audio" || mode === "photo";
+  const needsCamera = mode === "photo" || mode === "scene" || mode === "video";
+  // Video and AudioSnap-paired photo both need the mic. Audio-only obviously
+  // does too. Scene mode is camera-only (no AudioSnap by design).
+  const needsMic = mode === "audio" || mode === "photo" || mode === "video";
 
   // Request permissions once per mode toggle when missing. Omit the
   // request* function refs from deps — their identities change on every
@@ -194,6 +209,72 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
     }
   };
 
+  // ── Video record / stop ───────────────────────────────────────────
+  //
+  // expo-camera's recordAsync resolves with the file URI once recording
+  // ends — either via stopRecording() OR when maxDuration elapses. We
+  // store the awaiter as a Promise here so the Stop tap can call
+  // stopRecording() without needing to know the resolve callback.
+  const handleVideoTap = async () => {
+    if (!cameraRef.current || busy) return;
+
+    if (videoRecording) {
+      // Stop in progress — recordAsync's promise (set in the start branch)
+      // will resolve with the URI, and the duration timer is cleared there.
+      try {
+        cameraRef.current.stopRecording();
+      } catch (err) {
+        console.warn("[video] stopRecording threw:", err);
+      }
+      return;
+    }
+
+    setBusy(true);
+    try {
+      setVideoRecording(true);
+      setVideoElapsed(0);
+      videoTimerRef.current = setInterval(() => {
+        setVideoElapsed((n) => {
+          // Auto-stop at the max — recordAsync ALSO honors maxDuration
+          // but the UI counter shouldn't visually keep climbing past it.
+          if (n + 1 >= VIDEO_MAX_DURATION_SEC) {
+            try {
+              cameraRef.current?.stopRecording();
+            } catch {
+              // already stopped
+            }
+          }
+          return n + 1;
+        });
+      }, 1000);
+
+      const result = await cameraRef.current.recordAsync({
+        maxDuration: VIDEO_MAX_DURATION_SEC,
+      });
+
+      if (videoTimerRef.current) clearInterval(videoTimerRef.current);
+      videoTimerRef.current = null;
+      setVideoRecording(false);
+
+      if (result?.uri) {
+        addAttachment({
+          kind: "video",
+          localPath: result.uri,
+          mimeType: "video/mp4",
+          duration: videoElapsed || 1,
+        });
+        onClose();
+      }
+    } catch (err) {
+      console.warn("[video] recordAsync failed:", err);
+      if (videoTimerRef.current) clearInterval(videoTimerRef.current);
+      videoTimerRef.current = null;
+      setVideoRecording(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   // ── Scene: finalize captured photos + note ────────────────────────
   // Fire-and-forget: close the modal immediately so the user isn't staring
   // at a frozen screen while Gemini Pro chews on the images (2-10s). The
@@ -245,20 +326,32 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
             // adding this, brief camera flicker was reported when the
             // permission useEffect re-fired mid-session.
             //
-            // mode="picture" is the SDK default but pinned explicitly so a
-            // future SDK default-change can't quietly flip us into the
-            // video-capable surface (which holds an audio session and is
-            // more sensitive to mid-stream config changes).
-            //
+            // mode flips between "picture" (default for photo/scene) and
+            // "video" (engages the audio session + video-capable surface).
             // facing flips between back and front via the overlay button.
             // CameraView handles the swap natively without a remount.
-            <CameraView
-              key="capture-camera"
-              ref={cameraRef}
-              style={styles.camera}
-              facing={facing}
-              mode="picture"
-            />
+            //
+            // The mode flag DOES cause a surface swap when toggled, so a
+            // mid-recording mode change would be bad — but video recording
+            // disables the mode-tabs row so that can't happen.
+            <>
+              <CameraView
+                key={`capture-camera-${mode === "video" ? "video" : "picture"}`}
+                ref={cameraRef}
+                style={styles.camera}
+                facing={facing}
+                mode={mode === "video" ? "video" : "picture"}
+                videoQuality={mode === "video" ? VIDEO_QUALITY : undefined}
+              />
+              {mode === "video" && videoRecording ? (
+                <View style={styles.recordingBadge} pointerEvents="none">
+                  <View style={styles.recordingDot} />
+                  <Text style={styles.recordingBadgeText}>
+                    {formatTime(videoElapsed)} / 0:{String(VIDEO_MAX_DURATION_SEC).padStart(2, "0")}
+                  </Text>
+                </View>
+              ) : null}
+            </>
           ) : (
             <View style={styles.permView}>
               <Text style={styles.permText}>
@@ -307,15 +400,20 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
           </View>
         ) : null}
 
-        {/* Mode tabs */}
+        {/* Mode tabs — disabled while recording video so we can't surface-
+            swap mid-record (would corrupt the recording). */}
         <View style={styles.modeRow}>
-          {(["photo", "audio", "scene"] as CaptureMode[]).map((m) => (
+          {(["photo", "video", "audio", "scene"] as CaptureMode[]).map((m) => (
             <Pressable
               key={m}
-              onPress={() => setMode(m)}
+              onPress={() => {
+                if (videoRecording || audioRecording) return;
+                setMode(m);
+              }}
               style={[
                 styles.modeTab,
                 mode === m ? { borderBottomColor: C.accent } : null,
+                (videoRecording || audioRecording) && mode !== m ? { opacity: 0.35 } : null,
               ]}
             >
               <Text style={{ fontSize: 18 }}>{ICON[m]}</Text>
@@ -346,6 +444,26 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
                   height: audioRecording ? 26 : 56,
                   borderRadius: audioRecording ? 4 : 28,
                   backgroundColor: audioRecording ? C.red : "#fff",
+                }}
+              />
+            </Pressable>
+          ) : mode === "video" ? (
+            <Pressable
+              onPress={handleVideoTap}
+              disabled={busy && !videoRecording}
+              style={[
+                styles.shutter,
+                videoRecording ? { borderColor: C.red } : null,
+                busy && !videoRecording ? { opacity: 0.5 } : null,
+              ]}
+              accessibilityLabel={videoRecording ? "Stop video recording" : "Start video recording"}
+            >
+              <View
+                style={{
+                  width: videoRecording ? 26 : 56,
+                  height: videoRecording ? 26 : 56,
+                  borderRadius: videoRecording ? 4 : 28,
+                  backgroundColor: videoRecording ? C.red : C.red,
                 }}
               />
             </Pressable>
@@ -401,11 +519,13 @@ export function CaptureModal({ visible, initialMode, onClose }: Props) {
 
 const ICON: Record<CaptureMode, string> = {
   photo: "📷",
+  video: "🎥",
   audio: "🎙️",
   scene: "🎬",
 };
 const LABEL: Record<CaptureMode, string> = {
   photo: "Photo",
+  video: "Video",
   audio: "Audio",
   scene: "Scene",
 };
@@ -524,4 +644,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: C.accent,
   },
+  recordingBadge: {
+    position: "absolute",
+    top: 16,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 1,
+    borderColor: C.red + "88",
+  },
+  recordingDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: C.red },
+  recordingBadgeText: { color: "#fff", fontSize: 12, fontWeight: "700" },
 });
