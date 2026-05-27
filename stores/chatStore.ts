@@ -682,6 +682,15 @@ export const useChat = create<ChatState>((set, get) => ({
     // stale by the time a retry would drain, so queuing them is pointless.
     if (ambientPing && isOffline()) return;
 
+    // ── Lock the pipeline synchronously ──────────────────────────────
+    // Set status to "assembling" BEFORE any await so a rapid second tap
+    // (which can happen on phones — long-press + release, accidental
+    // double-tap) is blocked by the status guard above on the next call.
+    // Previously this happened only after the async payload-size check,
+    // which left a window where two concurrent sends could both pass the
+    // guard and both go through.
+    set({ status: "assembling", sendStartedAt: Date.now() });
+
     // ── Pre-send payload size check ──────────────────────────────────
     // Gemini's inline-content cap is 20 MB. If the attached files would
     // exceed that (after base64 expansion + JSON wrapper overhead), we
@@ -694,7 +703,12 @@ export const useChat = create<ChatState>((set, get) => ({
         console.warn(
           `[chatStore] payload oversize ${sizeInfo.totalBase64Bytes} bytes > ${PAYLOAD_LIMIT_BYTES} — blocking send`
         );
-        set({ oversizePayload: sizeInfo });
+        // Release the lock — the send isn't proceeding.
+        set({
+          status: "idle",
+          sendStartedAt: null,
+          oversizePayload: sizeInfo,
+        });
         return;
       }
     }
@@ -713,12 +727,16 @@ export const useChat = create<ChatState>((set, get) => ({
         duration: a.duration,
       })),
     };
-    set({
-      messages: [...state.messages, pendingTim],
+    // Use get() here, not the snapshot from sendMessage entry — the await
+    // for payload-size could have let a system card (venue bridge, etc.)
+    // append in the meantime, and using stale state would clobber it.
+    set((s) => ({
+      messages: [...s.messages, pendingTim],
+      // status + sendStartedAt already set at the lock above; redundant
+      // but harmless to reaffirm here.
       status: "assembling",
       errorMessage: null,
-      sendStartedAt: Date.now(),
-    });
+    }));
 
     // Snapshot the abort-bus generation at entry. If the user trips the
     // global Abort button mid-flight, generation increments and every catch
@@ -1045,17 +1063,20 @@ export const useChat = create<ChatState>((set, get) => ({
           }
         }
 
-        // Bump Kindroid timeout for video sends. Default is 90s; video
-        // adds 5 image_urls + a richer emote, and Kindroid's processing
-        // can run ~60-120s. The default tripped Tim's previous send into
-        // a timeout → recovery popup → resubmit → Kindroid received the
-        // message twice. 180s gives the first send room to land.
+        // Drop the timeout entirely for video sends. Even 180s wasn't
+        // always enough — Kindroid genuinely can take 3-5+ min to process
+        // a video-rich message, and a false-timeout surfaces as a
+        // recovery popup that drives the user into a Resubmit and a
+        // double-send. Tim has the ⏹ Abort button if he wants to give
+        // up manually, and the chatStore watchdog (at 6 min) is the
+        // final safety net. timeoutMs=0 is the kindroid service's
+        // "no timeout" sentinel.
         const hasVideoAttached = attachments.some((a) => a.kind === "video");
         let eliRaw: string;
         try {
           eliRaw = await kindroidSend(finalRaw, {
             imageUrls,
-            timeoutMs: hasVideoAttached ? 180_000 : undefined,
+            timeoutMs: hasVideoAttached ? 0 : undefined,
           });
         } catch (err) {
           // User aborted while Kindroid was in flight — state already

@@ -36,7 +36,11 @@ const POLL_INTERVAL_MS = 15_000;
 // timeouts in services/gemini.ts, /elevenlabs.ts, /kindroid.ts should mean
 // these are never hit. They exist as a backstop in case a future change
 // introduces an unbounded path.
-const STUCK_SEND_MS = 180_000; // 3 min — covers worst-case stack of Gemini + Kindroid
+// 6 min — bumped from 3 min because video sends through Kindroid genuinely
+// can take 3-5 min when the clip is rich (5 image_urls + emote + LLM
+// reasoning). At 3 min the watchdog would force-error a real in-progress
+// send; at 6 min it only fires when something is actually stuck.
+const STUCK_SEND_MS = 360_000;
 // addAudioTags(15s) + synthesizeToFile(180s hard cap) + 30s slack. The new
 // synth wall isn't a single timer — it's a first-byte timer + per-chunk
 // stall timer + a 3-min hard cap. The watchdog only needs to cover the

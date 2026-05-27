@@ -33,9 +33,16 @@ async function kindroidRequest(opts: RequestOpts): Promise<string> {
     // Combine the per-attempt timeout controller with the global abort bus so
     // the user-facing ⏹ Abort button kills this fetch instantly, alongside
     // the normal timeout backstop.
+    //
+    // timeoutMs of 0 means "no timeout" — the request only ends when Kindroid
+    // responds or the user trips the abort bus. Used for video sends, where
+    // Kindroid's processing genuinely can run >3 min on a heavy clip and a
+    // false-timeout that resurfaces as a recovery popup leads to user-driven
+    // double-sends.
     const ctl = new AbortController();
     const { signal, cleanup } = combineWithAbortSignal(ctl.signal);
-    const t = setTimeout(() => ctl.abort(), opts.timeoutMs);
+    const t =
+      opts.timeoutMs > 0 ? setTimeout(() => ctl.abort(), opts.timeoutMs) : null;
     try {
       const res = await fetch(`${BASE_URL}${opts.path}`, {
         method: "POST",
@@ -52,7 +59,7 @@ async function kindroidRequest(opts: RequestOpts): Promise<string> {
       }
       return await res.text();
     } finally {
-      clearTimeout(t);
+      if (t) clearTimeout(t);
       cleanup();
     }
   };
@@ -64,8 +71,16 @@ async function kindroidRequest(opts: RequestOpts): Promise<string> {
     } catch (err) {
       lastErr = err;
       if (err instanceof Error && err.name === "AbortError") {
-        // Timeout — don't retry a 300s send that already spent the budget
-        throw new Error(`Kindroid ${opts.path} timed out after ${opts.timeoutMs / 1000}s`);
+        // Don't retry an aborted request. Two distinct causes here:
+        //   - opts.timeoutMs > 0: we hit our own timeout
+        //   - opts.timeoutMs === 0: user tripped the abort bus (only
+        //     possible source, since no timeout was set)
+        if (opts.timeoutMs > 0) {
+          throw new Error(
+            `Kindroid ${opts.path} timed out after ${opts.timeoutMs / 1000}s`
+          );
+        }
+        throw new Error(`Kindroid ${opts.path} aborted`);
       }
       if (i < CONFIG.GEMINI_MAX_RETRIES - 1) {
         const wait = CONFIG.GEMINI_RETRY_BASE_MS * Math.pow(2, i);
