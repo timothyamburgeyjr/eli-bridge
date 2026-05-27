@@ -8,7 +8,8 @@ import { parseAssembledMessage } from "@/services/gemini";
 import { sendMessage as kindroidSend, updateScene as kindroidUpdateScene } from "@/services/kindroid";
 import { analyzeScene as geminiAnalyzeScene } from "@/services/gemini";
 import { uploadImage, isImageServerConfigured } from "@/services/imageServer";
-import { extractFiveFrames } from "@/session/videoThumbnails";
+// videoThumbnails import temporarily disabled — see deliverToKindroid below.
+// import { extractFiveFrames } from "@/session/videoThumbnails";
 import { convertTimAsterisksToEmotes } from "@/components/chat/FormattedBody";
 import {
   StagedAttachment,
@@ -988,27 +989,16 @@ export const useChat = create<ChatState>((set, get) => ({
               console.warn("Image server upload failed", err);
             }
           }
-          for (const att of videoAtts) {
-            // duration is in seconds in StagedAttachment; thumbnail extractor
-            // wants ms. Default to 1s if duration is somehow missing.
-            const durationMs = Math.max(1000, (att.duration ?? 1) * 1000);
-            try {
-              const frames = await extractFiveFrames(att.localPath, durationMs);
-              for (const frame of frames) {
-                try {
-                  const result = await uploadImage(frame.uri);
-                  imageUrls.push(result.url);
-                } catch (err) {
-                  console.warn("Video frame upload failed", err);
-                }
-              }
-            } catch (err) {
-              // Non-fatal — Gemini already saw the full video for emote
-              // assembly, so Eli still gets a rich emote even without
-              // visual frames. He just doesn't see the stills.
-              console.warn("Video thumbnail extraction failed:", err);
-            }
-          }
+          // Video frame extraction is temporarily disabled at the JS layer
+          // because the expo-video-thumbnails native module is suspected of
+          // crashing the app at boot. Gemini still receives the full video
+          // (in `videos` passed to assembleEmote) so Eli gets a rich emote
+          // describing the clip; he just doesn't see the 5 stills.
+          //
+          // TODO: re-enable once we've diagnosed the native init crash and
+          // either picked a known-good expo-video-thumbnails version or
+          // confirmed the root cause was elsewhere.
+          void videoAtts;
         }
 
         let eliRaw: string;
