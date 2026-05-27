@@ -1,5 +1,4 @@
 import { requireEnv } from "./env";
-import { CONFIG } from "@/constants/config";
 import { combineWithAbortSignal } from "@/session/abortBus";
 
 const BASE_URL = "https://api.kindroid.ai/v1";
@@ -29,66 +28,59 @@ interface RequestOpts {
 async function kindroidRequest(opts: RequestOpts): Promise<string> {
   const key = requireEnv("KINDROID_API_KEY");
 
-  const attempt = async (): Promise<string> => {
-    // Combine the per-attempt timeout controller with the global abort bus so
-    // the user-facing ⏹ Abort button kills this fetch instantly, alongside
-    // the normal timeout backstop.
-    //
-    // timeoutMs of 0 means "no timeout" — the request only ends when Kindroid
-    // responds or the user trips the abort bus. Used for video sends, where
-    // Kindroid's processing genuinely can run >3 min on a heavy clip and a
-    // false-timeout that resurfaces as a recovery popup leads to user-driven
-    // double-sends.
-    const ctl = new AbortController();
-    const { signal, cleanup } = combineWithAbortSignal(ctl.signal);
-    const t =
-      opts.timeoutMs > 0 ? setTimeout(() => ctl.abort(), opts.timeoutMs) : null;
-    try {
-      const res = await fetch(`${BASE_URL}${opts.path}`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${key}`,
-        },
-        body: JSON.stringify(opts.body),
-        signal,
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => "(no body)");
-        throw new Error(`Kindroid ${opts.path} → HTTP ${res.status}: ${errText.slice(0, 200)}`);
-      }
-      return await res.text();
-    } finally {
-      if (t) clearTimeout(t);
-      cleanup();
+  // Single-shot. NO auto-retry. All Kindroid endpoints have side effects
+  // (send-message writes to Eli's conversation, journal-create creates a
+  // journal entry, update-info mutates Eli's scene state) — a transparent
+  // retry can silently duplicate state on the Kindroid side when the first
+  // request actually succeeded but the response was lost on the wire
+  // (HTTP 502/504 from a proxy, transient network blip during response
+  // phase, etc.). Tim was hitting this on video sends: ~3-5 min Kindroid
+  // processing → response interrupted → auto-retry → Kindroid logs the
+  // message twice → only one Eli reply makes it back to the bridge.
+  //
+  // Errors here bubble straight up to the caller (chatStore), which
+  // surfaces transient failures to the recovery popup. The user gets to
+  // decide whether to resubmit, having been warned that a duplicate
+  // message could land if the first one already reached Eli.
+  //
+  // timeoutMs=0 means "no timeout" — the request only ends when Kindroid
+  // responds or the user trips the abort bus. Used for video sends.
+  const ctl = new AbortController();
+  const { signal, cleanup } = combineWithAbortSignal(ctl.signal);
+  const t =
+    opts.timeoutMs > 0 ? setTimeout(() => ctl.abort(), opts.timeoutMs) : null;
+  try {
+    const res = await fetch(`${BASE_URL}${opts.path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${key}`,
+      },
+      body: JSON.stringify(opts.body),
+      signal,
+    });
+    if (!res.ok) {
+      const errText = await res.text().catch(() => "(no body)");
+      throw new Error(
+        `Kindroid ${opts.path} → HTTP ${res.status}: ${errText.slice(0, 200)}`
+      );
     }
-  };
-
-  let lastErr: unknown;
-  for (let i = 0; i < CONFIG.GEMINI_MAX_RETRIES; i++) {
-    try {
-      return await attempt();
-    } catch (err) {
-      lastErr = err;
-      if (err instanceof Error && err.name === "AbortError") {
-        // Don't retry an aborted request. Two distinct causes here:
-        //   - opts.timeoutMs > 0: we hit our own timeout
-        //   - opts.timeoutMs === 0: user tripped the abort bus (only
-        //     possible source, since no timeout was set)
-        if (opts.timeoutMs > 0) {
-          throw new Error(
-            `Kindroid ${opts.path} timed out after ${opts.timeoutMs / 1000}s`
-          );
-        }
-        throw new Error(`Kindroid ${opts.path} aborted`);
+    return await res.text();
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") {
+      // Distinguish: we hit our own timeout vs the user tripped abort.
+      if (opts.timeoutMs > 0) {
+        throw new Error(
+          `Kindroid ${opts.path} timed out after ${opts.timeoutMs / 1000}s`
+        );
       }
-      if (i < CONFIG.GEMINI_MAX_RETRIES - 1) {
-        const wait = CONFIG.GEMINI_RETRY_BASE_MS * Math.pow(2, i);
-        await new Promise((r) => setTimeout(r, wait));
-      }
+      throw new Error(`Kindroid ${opts.path} aborted`);
     }
+    throw err;
+  } finally {
+    if (t) clearTimeout(t);
+    cleanup();
   }
-  throw lastErr;
 }
 
 // ── sendMessage ─────────────────────────────────────────────────────
