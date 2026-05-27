@@ -9,6 +9,7 @@ import { usePeople } from "@/people/PeopleStore";
 import { ConversationOverlay } from "@/components/conversation/ConversationOverlay";
 import { ConversationAutoBanner } from "@/components/conversation/ConversationAutoBanner";
 import { RecoveryPopup } from "@/components/common/RecoveryPopup";
+import { OversizePayloadModal } from "@/components/common/OversizePayloadModal";
 import { installVenueBridge } from "@/session/venueBridge";
 import { installTimelineExporter } from "@/session/timelineExport";
 import { useConnection } from "@/stores/connectionStore";
@@ -67,6 +68,9 @@ export default function RootLayout() {
           {/* Timeout-recovery popup — overlays everything, Driving Mode
               included, when a pipeline step fails transiently. */}
           <RecoveryPopup />
+          {/* Oversize-attachments popup — fires when a send is blocked
+              because attached files would exceed Gemini's 20 MB cap. */}
+          <OversizePayloadModal />
         </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>

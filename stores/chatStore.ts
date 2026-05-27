@@ -9,6 +9,11 @@ import { sendMessage as kindroidSend, updateScene as kindroidUpdateScene } from 
 import { analyzeScene as geminiAnalyzeScene } from "@/services/gemini";
 import { uploadImage, isImageServerConfigured } from "@/services/imageServer";
 import { extractFiveFrames } from "@/session/videoThumbnails";
+import {
+  computePayloadSize,
+  PAYLOAD_LIMIT_BYTES,
+  PayloadSizeInfo,
+} from "@/session/payloadSize";
 import { convertTimAsterisksToEmotes } from "@/components/chat/FormattedBody";
 import {
   StagedAttachment,
@@ -114,6 +119,15 @@ interface ChatState {
   offlineQueue: QueuedSend[];
   /** True while the queue is being drained (prevents re-entrant drain). */
   draining: boolean;
+
+  /**
+   * Set when a send was blocked because attached files would exceed Gemini's
+   * 20 MB inline-content cap. The UI shows the OversizePayloadModal listing
+   * each attachment with size + a remove button. Cleared when the user
+   * dismisses the modal.
+   */
+  oversizePayload: PayloadSizeInfo | null;
+  clearOversizePayload: () => void;
 
   addAttachment: (a: Omit<StagedAttachment, "id">) => void;
   removeAttachment: (id: string) => void;
@@ -408,6 +422,9 @@ export const useChat = create<ChatState>((set, get) => ({
   sceneError: null,
   offlineQueue: [],
   draining: false,
+  oversizePayload: null,
+
+  clearOversizePayload: () => set({ oversizePayload: null }),
 
   setSensorOverride: (sensors) => set({ sensorOverride: sensors }),
 
@@ -664,6 +681,23 @@ export const useChat = create<ChatState>((set, get) => ({
     // Ambient pings still bail on a confirmed-offline reading: they're
     // stale by the time a retry would drain, so queuing them is pointless.
     if (ambientPing && isOffline()) return;
+
+    // ── Pre-send payload size check ──────────────────────────────────
+    // Gemini's inline-content cap is 20 MB. If the attached files would
+    // exceed that (after base64 expansion + JSON wrapper overhead), we
+    // refuse the send up front and surface the OversizePayloadModal so
+    // Tim can remove an attachment before retrying. Skipped for ambient
+    // pings since they have no attachments by definition.
+    if (!ambientPing && attachments.length > 0) {
+      const sizeInfo = await computePayloadSize(attachments);
+      if (sizeInfo.oversize) {
+        console.warn(
+          `[chatStore] payload oversize ${sizeInfo.totalBase64Bytes} bytes > ${PAYLOAD_LIMIT_BYTES} — blocking send`
+        );
+        set({ oversizePayload: sizeInfo });
+        return;
+      }
+    }
 
     const timMsgId = `tim-${Date.now()}`;
     const pendingTim: ChatItem = {
