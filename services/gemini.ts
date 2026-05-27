@@ -469,8 +469,17 @@ export async function generateQuickMessages(
 
   // 20s — generation of 16 short items on Flash is usually ~3-5s; 20s leaves
   // room for cellular slowness without freezing the Conversation Mode UI.
+  //
+  // Uses neutralFlash() — a Flash instance without the Eli Bridge system
+  // instruction. The 9k-token emote-assembly prompt is dead weight here:
+  // Quick Messages have their own full instruction inline (above), and
+  // Gemini doesn't need to know Eli's persona or the emote conventions to
+  // generate a JSON list of tap-to-send cards. Skipping the system prompt
+  // cuts per-call input from ~11k tokens to ~2k tokens (~5x cheaper).
+  // Same precedent: condensePersonContext does the same thing for the same
+  // reason — pure summarization, no Eli context required.
   const result = await withDeadline(
-    withRetry(() => flash().generateContent({ contents })),
+    withRetry(() => neutralFlash().generateContent({ contents })),
     20_000,
     "generateQuickMessages",
     input.signal

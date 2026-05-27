@@ -23,8 +23,17 @@ import { useMode } from "@/stores/modeStore";
  *   - Less than QUICK_REGEN_COOLDOWN_MS since the last successful batch
  */
 
-const QUICK_REGEN_COOLDOWN_MS = 90_000; // 90s minimum between regens
-const QUICK_MOVE_THRESHOLD_M = 2_000; // 2km warrants a fresh batch
+// Refresh-pacing tuning. The original numbers (90s / 2km) generated too
+// often on cellular highway drives — at 65mph the movement trigger fired
+// roughly every two minutes, and combined with place-name and weather
+// triggers we landed ~15 calls/hr. The looser values below pace the
+// refreshes closer to "every meaningful context shift" rather than "every
+// time you've moved a little":
+//   - 120s cooldown: caps worst-case burst when place names rapidly change
+//   - 5km movement: at highway speed this is ~4.6 min between fires,
+//     about 60% fewer movement-driven refreshes than 2km.
+const QUICK_REGEN_COOLDOWN_MS = 120_000; // 2 min minimum between regens
+const QUICK_MOVE_THRESHOLD_M = 5_000; // 5km warrants a fresh batch
 const TARGET_BATCH_SIZE = 16;
 
 // ── Fingerprint helpers ─────────────────────────────────────────
