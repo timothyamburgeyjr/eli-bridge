@@ -144,15 +144,35 @@ interface MotionSample {
 
 const MOTION_WINDOW_MS = 90_000;
 const MAX_MOTION_SAMPLES = 12;
+// Minimum lat/lon delta we treat as "this is a meaningfully different fix"
+// when deciding whether to drop a sample as a cached duplicate. ~0.0001 deg
+// ≈ 11 m at typical mid-latitudes — comfortably above GPS-noise floor and
+// well under any walking-pace movement between 15s polls.
+const DUPLICATE_FIX_EPSILON = 0.0001;
 const motionBuffer: MotionSample[] = [];
 
 /**
  * Push a GPS fix into the rolling motion buffer. Callers (sessionPoller,
  * liveSensors) should call this once per tick BEFORE invoking
  * `inferActivityFromMotion` so the latest sample is in the window.
+ *
+ * Deduplicates fixes with identical positions to the previous sample. The
+ * OS's location provider sometimes returns a cached fix when a fresh one
+ * isn't ready yet — same lat/lon, advancing timestamp — and those poison
+ * the windowed-distance calc (total distance = 0 even while Tim's driving).
  */
 export function recordMotionSample(loc: LocationData): void {
   const now = Date.now();
+  const last = motionBuffer[motionBuffer.length - 1];
+  if (
+    last &&
+    Math.abs(last.lat - loc.latitude) < DUPLICATE_FIX_EPSILON &&
+    Math.abs(last.lon - loc.longitude) < DUPLICATE_FIX_EPSILON
+  ) {
+    // Same position as last fix — treat as cached duplicate. Skip the push
+    // so the windowed-distance calc doesn't see zero-delta entries.
+    return;
+  }
   motionBuffer.push({ t: now, lat: loc.latitude, lon: loc.longitude });
   while (motionBuffer.length > MAX_MOTION_SAMPLES) motionBuffer.shift();
   while (motionBuffer.length > 0 && now - motionBuffer[0].t > MOTION_WINDOW_MS) {
@@ -179,6 +199,14 @@ export function resetMotionBuffer(): void {
 export function inferActivityFromMotion(speedMs: number | undefined): TransportMode {
   const reported = speedMs ?? 0;
 
+  // FAST PATH — clearly driving. If the GPS-reported speed is at or above
+  // the "car" threshold (11 mph / 5 m/s), trust it immediately and skip
+  // the buffer math entirely. This defends against the failure mode where
+  // the location provider returns cached/stale fixes that make the
+  // windowed-distance calc look like zero movement: as long as the speed
+  // reading itself is current and high, we know Tim's in a vehicle.
+  if (reported >= 5.0) return "car";
+
   // Insufficient buffer to compute a windowed speed — fall back to the
   // instantaneous reading. Happens on the first 1–2 ticks of a session.
   if (motionBuffer.length < 2) return classifySpeedMs(reported);
@@ -199,5 +227,23 @@ export function inferActivityFromMotion(speedMs: number | undefined): TransportM
   //   - reported speed catches "just started moving, buffer hasn't filled"
   //   - windowed speed catches "GPS reported 0 but we actually moved"
   const effectiveSpeed = Math.max(reported, windowedSpeed);
-  return classifySpeedMs(effectiveSpeed);
+  const result = classifySpeedMs(effectiveSpeed);
+
+  // Diagnostic — when we land on "still" with a populated buffer, log the
+  // sample stretch so we can post-mortem any remaining false-stills Tim
+  // hits in the field. (Grep `[motion]` in adb logcat during a drive.)
+  if (result === "still" && motionBuffer.length >= 2) {
+    const first = motionBuffer[0];
+    const last = motionBuffer[motionBuffer.length - 1];
+    console.log(
+      `[motion] STILL classified · reported=${reported.toFixed(2)}m/s ` +
+        `windowed=${windowedSpeed.toFixed(2)}m/s ` +
+        `(${motionBuffer.length} samples over ${windowSec.toFixed(0)}s, ` +
+        `${totalDist.toFixed(0)}m total · first→last ` +
+        `${first.lat.toFixed(5)},${first.lon.toFixed(5)} → ` +
+        `${last.lat.toFixed(5)},${last.lon.toFixed(5)})`
+    );
+  }
+
+  return result;
 }

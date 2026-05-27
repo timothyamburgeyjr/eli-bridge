@@ -18,6 +18,7 @@ import { SessionTimeline } from "@/components/session/SessionTimeline";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { ChatStream } from "@/components/chat/ChatStream";
 import { InputBar } from "@/components/chat/InputBar";
+import { QuickMessagesPopup } from "@/components/chat/QuickMessagesPopup";
 import { StagingTray } from "@/components/chat/StagingTray";
 import { MediaPicker } from "@/components/capture/MediaPicker";
 import { CaptureModal, CaptureMode } from "@/components/capture/CaptureModal";
@@ -37,6 +38,7 @@ export default function Main() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   // Picker state retired: the + attachment picker was replaced by first-class
   // Photo/Audio/Location buttons in the redesigned InputBar.
+  const [quickPopupOpen, setQuickPopupOpen] = useState(false);
   const [captureMode, setCaptureMode] = useState<CaptureMode | null>(null);
   const [placePickerOpen, setPlacePickerOpen] = useState(false);
   const [bundleSheetOpen, setBundleSheetOpen] = useState(false);
@@ -319,6 +321,7 @@ export default function Main() {
       <InputBar
         onLocationTap={() => setPlacePickerOpen(true)}
         onSceneTap={() => setCaptureMode("scene")}
+        onQuickMessagesTap={() => setQuickPopupOpen(true)}
         onPhotoTap={() => setCaptureMode("photo")}
       />
       </KeyboardAvoidingView>
@@ -345,6 +348,11 @@ export default function Main() {
       {/* MediaPicker retired — entry points are first-class buttons in the
           InputBar now. Kept as a future re-attachment point if Scene Capture
           gets its own entry back. */}
+
+      <QuickMessagesPopup
+        visible={quickPopupOpen}
+        onClose={() => setQuickPopupOpen(false)}
+      />
       <CaptureModal
         visible={captureMode !== null}
         initialMode={captureMode ?? "photo"}

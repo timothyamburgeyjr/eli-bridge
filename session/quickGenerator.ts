@@ -101,9 +101,11 @@ export function resetQuickAnchor(): void {
  */
 export function maybeRefreshQuickMessages(snapshot: SensorSnapshot): void {
   const inConversation = useMode.getState().conversation;
-  if (!inConversation) return; // suppress entirely when overlay isn't visible
-
   const q = useQuick.getState();
+  // Suppress when nobody is looking at the cards. The popup consumer flag is
+  // set by the main-chat Quick Messages popup while it's open; Conversation
+  // Mode keeps the cards visible the whole time it's active.
+  if (!inConversation && !q.popupConsumer) return;
   if (q.generating) return;
 
   const now = Date.now();

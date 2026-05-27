@@ -27,6 +27,12 @@ interface QuickState {
   generating: boolean;
   /** Last error message from a failed generation, surfaced in View All. */
   lastError: string | null;
+  /**
+   * True while the main-chat Quick Messages popup is open. The generator
+   * suppresses itself unless either this flag OR Conversation Mode is
+   * active — saves Gemini calls when neither UI is showing the suggestions.
+   */
+  popupConsumer: boolean;
 
   setSuggestions: (
     suggestions: QuickMessage[],
@@ -34,6 +40,7 @@ interface QuickState {
   ) => void;
   setGenerating: (generating: boolean) => void;
   setError: (msg: string | null) => void;
+  setPopupConsumer: (open: boolean) => void;
   clear: () => void;
 
   /**
@@ -51,6 +58,7 @@ export const useQuick = create<QuickState>((set) => ({
   contextFingerprint: null,
   generating: false,
   lastError: null,
+  popupConsumer: false,
 
   setSuggestions: (suggestions, contextFingerprint) =>
     set({
@@ -65,6 +73,8 @@ export const useQuick = create<QuickState>((set) => ({
 
   setError: (msg) => set({ lastError: msg, generating: false }),
 
+  setPopupConsumer: (open) => set({ popupConsumer: open }),
+
   clear: () =>
     set({
       suggestions: [],
@@ -72,6 +82,8 @@ export const useQuick = create<QuickState>((set) => ({
       contextFingerprint: null,
       generating: false,
       lastError: null,
+      // popupConsumer intentionally NOT cleared — if the popup is open across
+      // a session boundary it should keep generating into the fresh batch.
     }),
 
   consume: (index) =>

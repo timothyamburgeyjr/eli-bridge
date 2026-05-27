@@ -420,28 +420,51 @@ export async function generateQuickMessages(
       `the current context. Aim for ${count} entries.\n\n`;
 
   const prompt =
-    "You are generating Quick Messages for Tim's Conversation Mode. Tim is " +
-    "in a vehicle (or otherwise hands-busy) and can't type — he taps a card " +
-    "to instantly send a pre-written first-person observation to Eli, his " +
-    "AI companion. Each card needs to feel like something Tim would naturally " +
-    "say in this moment.\n\n" +
+    "You are generating Quick Messages — pre-written first-person " +
+    "observations Tim can tap to send to Eli, his AI companion, without " +
+    "typing. Tim's hands or attention are otherwise occupied (driving, " +
+    "walking, etc.), so each card needs to feel like something Tim would " +
+    "naturally say in this exact moment.\n\n" +
     refreshGuidance +
-    "Topics to cover (mix of):\n" +
-    "- Landmarks visible or coming up (signs, bridges, monuments, skylines)\n" +
-    "- Weather, traffic, ETA, or driving observations\n" +
-    "- History or trivia about where Tim is right now — towns, regions, " +
-    "famous people, regional culture, food, lore. Lean into this; your " +
-    "training has more depth than Tim does on most places.\n" +
-    "- Ambient observations (sky color, light quality, song on the radio)\n" +
-    "- Conversation starters tied to the moment (something to ask Eli)\n\n" +
+    "SCALE-OF-OBSERVATION — match what Tim can actually SEE and DO right " +
+    "now. The activity field in the sensor snapshot drives this:\n" +
+    "  - activity = car (driving): horizon-scale observations. Highway " +
+    "signs, distant skylines, billboards, bridges crossing rivers, ETA, " +
+    "traffic flow, weather across the route, regional culture / history " +
+    "of the area you're passing through, songs on the radio. Tim can't " +
+    "stop to inspect anything — he glances and observes.\n" +
+    "  - activity = walking or running: storefront-scale, sidewalk-scale " +
+    "observations. Specific business names you can see from the sidewalk " +
+    "(\"Dark Star Books is right here\"), cobblestones, foot traffic, " +
+    "smells from a café, conversations from passing groups, the feel of " +
+    "the weather on skin, things you could WALK INTO and inspect. Slower " +
+    "and more deliberate than driving — Tim has time to look around.\n" +
+    "  - activity = still: ambient observations from where Tim is sitting " +
+    "or standing. The light in the room, sounds, who else is around, " +
+    "what's on screens or surfaces nearby. Less about movement, more " +
+    "about settling in.\n" +
+    "  - Unknown / mixed activity: lean toward the most-recent place-name " +
+    "context. If it's a walkable downtown, default to walking scale. If " +
+    "it's a highway corridor, default to driving scale.\n\n" +
+    "Topics across activities (pick varied ones per batch):\n" +
+    "- Landmarks / visible features at the appropriate scale\n" +
+    "- Weather (current, change, alert)\n" +
+    "- History or trivia about where Tim is — lean into this; your " +
+    "training has more depth than Tim does on most places, and a " +
+    "historical/cultural beat lands the same whether walking or driving\n" +
+    "- Ambient observations (sky, light, sound, smell, foot traffic)\n" +
+    "- Conversation starters (something to ask Eli)\n\n" +
     "RULES:\n" +
     "- First person, Tim's voice, present tense\n" +
     "- Each `body` must include ONE inline `*action*` emote, then dialog. " +
-    "Example: `*I glance out at the bend in the river* The Mississippi looks " +
-    "wider than I remembered, Eli.`\n" +
-    "- `label` is the short card text (max 40 chars). Use sentence fragments " +
-    "— \"We're passing the Gateway Arch\" / \"It just started raining here\" / " +
-    "\"This is Mark Twain country\"\n" +
+    "Example: `*I glance out at the bend in the river* The Mississippi " +
+    "looks wider than I remembered, Eli.`\n" +
+    "- `label` is the SHORT card text (max 40 chars). Sentence fragments — " +
+    "\"We're passing the Gateway Arch\" / \"It just started raining here\" / " +
+    "\"This is Mark Twain country\". Used in the compact Conversation Mode " +
+    "cards.\n" +
+    "- The `body` is what gets SENT and is also displayed in the main-chat " +
+    "popup. Write it as a complete, send-ready sentence (or two).\n" +
     "- Pick ONE emoji per card that fits the topic\n" +
     "- DO NOT repeat what's already in chat history\n" +
     "- DO NOT include _(*…*)_ wrapper format; only single asterisks for the " +

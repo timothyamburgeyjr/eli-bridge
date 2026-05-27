@@ -14,6 +14,9 @@ interface Props {
   onLocationTap: () => void;
   /** Tap 🎬 Scene Capture (in the More menu) → CaptureModal in scene mode. */
   onSceneTap: () => void;
+  /** Tap 💬 Quick Messages (in the More menu) → open the Quick Messages
+   *  popup. Generates a fresh batch on first open per session. */
+  onQuickMessagesTap: () => void;
   /** Tap 📷 Photo → CaptureModal in photo mode. Video is intentionally
    *  greyed for now (no native video recording yet). */
   onPhotoTap: () => void;
@@ -41,7 +44,13 @@ interface Props {
  * preserved so Tim can record from the bottom row if he's already aiming
  * at the capture buttons.
  */
-export function InputBar({ onLocationTap, onSceneTap, onPhotoTap, onVideoTap }: Props) {
+export function InputBar({
+  onLocationTap,
+  onSceneTap,
+  onQuickMessagesTap,
+  onPhotoTap,
+  onVideoTap,
+}: Props) {
   const [text, setText] = useState("");
   const [recording, setRecording] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
@@ -241,6 +250,17 @@ export function InputBar({ onLocationTap, onSceneTap, onPhotoTap, onVideoTap }: 
             >
               <Text style={styles.moreItemIcon}>🎬</Text>
               <Text style={styles.moreItemLabel}>Scene Capture</Text>
+            </Pressable>
+            <View style={styles.moreDivider} />
+            <Pressable
+              onPress={() => {
+                setMoreOpen(false);
+                onQuickMessagesTap();
+              }}
+              style={styles.moreItem}
+            >
+              <Text style={styles.moreItemIcon}>💬</Text>
+              <Text style={styles.moreItemLabel}>Quick Messages</Text>
             </Pressable>
           </View>
         </View>
