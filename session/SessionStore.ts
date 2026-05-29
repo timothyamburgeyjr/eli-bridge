@@ -132,7 +132,12 @@ export const useSession = create<SessionState>((set, get) => ({
   errorMessage: null,
 
   start: async () => {
-    if (get().status === "active" || get().status === "starting") return;
+    // Only a genuinely live session blocks a (re)start. We deliberately do NOT
+    // bail on "starting" or any other transient state here: with immediate
+    // activation below, "starting" can't legitimately linger, and treating a
+    // stale/wedged status as "ignore" is exactly what left the Start button
+    // dead. From anything except "active", start fresh (this resets state).
+    if (get().status === "active") return;
 
     const sessionId = newSessionId();
     const startedAt = new Date().toISOString();

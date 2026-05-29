@@ -13,6 +13,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { C } from "@/constants/theme";
 import { useChat } from "@/stores/chatStore";
 import { useSession } from "@/session/SessionStore";
+import { useTimeline } from "@/stores/timelineStore";
 import { SessionHeader } from "@/components/session/SessionHeader";
 import { SessionTimeline } from "@/components/session/SessionTimeline";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
@@ -73,16 +74,31 @@ export default function Main() {
   const connected = sessionStatus === "active";
 
   const handleConnectToggle = async () => {
-    if (sessionStatus === "idle" || sessionStatus === "saved") {
-      clearChat();
-      await startSession();
-      setShowChat(false);
-    } else if (sessionStatus === "active") {
+    // Breadcrumb: a dead button now leaves a trace in the timeline (status it
+    // saw + which branch it took), so we never have to guess again.
+    useTimeline.getState().append({
+      kind: "api-call",
+      subsystem: "session",
+      level: "info",
+      icon: "🔌",
+      label: sessionStatus === "active" ? "End tapped" : "Start tapped",
+      detail: `session status was "${sessionStatus}"`,
+    });
+
+    if (sessionStatus === "active") {
       await endSession(liveMessages);
       setShowChat(true); // force chat view so the SessionJournalCard is visible
+      return;
     }
-    // Ignored during transient states (starting / ending / journal-ready /
-    // saving / error) — user must resolve the journal card before reconnecting.
+
+    // ANY non-active state — idle, saved, error, journal-ready, saving,
+    // ending, or a stale stuck "starting" — starts a fresh session. start()
+    // resets all session state, so this doubles as recovery from a wedged
+    // status. The old code only handled idle/saved here, which left every
+    // other state showing a "Start" button that silently did nothing.
+    clearChat();
+    await startSession();
+    setShowChat(false);
   };
 
   const activeScenario = useMemo(
