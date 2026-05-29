@@ -1,4 +1,5 @@
 import { getEnv } from "./env";
+import { tracedFetch } from "@/session/diagnosticLog";
 
 export interface PlaceInfo {
   /** Display-friendly name, e.g. "Dark Star Comics" or "Yellow Springs" */
@@ -47,7 +48,7 @@ export async function reverseGeocode(
 
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?latlng=${lat},${lon}&key=${key}`;
-    const res = await fetch(url);
+    const res = await tracedFetch("places", url, { label: "GET geocode" });
     if (!res.ok) return null;
     const json = (await res.json()) as {
       status: string;
@@ -174,7 +175,7 @@ export async function findNearbyPlaces(
     const url =
       `https://maps.googleapis.com/maps/api/place/nearbysearch/json?` +
       `location=${lat},${lon}&radius=${radiusM}&key=${key}`;
-    const res = await fetch(url);
+    const res = await tracedFetch("places", url, { label: "GET nearbysearch" });
     if (!res.ok) {
       return {
         places: [],

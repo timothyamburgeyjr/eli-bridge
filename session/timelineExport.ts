@@ -70,12 +70,30 @@ export function formatForVault(events: TimelineEvent[]): {
     lines.push("");
   }
 
+  // Per-subsystem tallies — how many calls hit each service. Surfaces e.g.
+  // "elevenlabs: 12" next to "gemini: 30" so the diagnostic read shows where
+  // the traffic (and any failures) concentrated.
+  const bySubsystem = countBySubsystem(events);
+  if (Object.keys(bySubsystem).length > 0) {
+    lines.push("## By subsystem");
+    lines.push("");
+    for (const [sub, n] of Object.entries(bySubsystem).sort((a, b) => b[1] - a[1])) {
+      lines.push(`- ${sub}: ${n}`);
+    }
+    lines.push("");
+  }
+
   lines.push("## Events");
   lines.push("");
 
   for (const e of events) {
     const clock = clockTime(new Date(e.t));
     lines.push(`### ${clock} ${e.icon} ${escapeMd(e.label)}`);
+    const summary = traceSummary(e);
+    if (summary) {
+      lines.push("");
+      lines.push(`\`${summary}\``);
+    }
     if (e.detail) {
       lines.push("");
       lines.push(escapeMd(e.detail));
@@ -96,6 +114,43 @@ function countByKind(events: TimelineEvent[]): Record<string, number> {
   const out: Record<string, number> = {};
   for (const e of events) out[e.kind] = (out[e.kind] ?? 0) + 1;
   return out;
+}
+
+function countBySubsystem(events: TimelineEvent[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const e of events) {
+    if (!e.subsystem) continue;
+    out[e.subsystem] = (out[e.subsystem] ?? 0) + 1;
+  }
+  return out;
+}
+
+/** One-line trace summary for an event's markdown heading, or "" when the
+ *  event carries no subsystem/API/timing data. */
+function traceSummary(e: TimelineEvent): string {
+  const parts: string[] = [];
+  if (e.subsystem) parts.push(`[${e.subsystem}]`);
+  if (e.api?.method || e.api?.endpoint) {
+    parts.push(`${e.api.method ?? ""} ${e.api.endpoint ?? ""}`.trim());
+  }
+  const ms = e.durationMs ?? e.api?.durationMs;
+  if (ms != null) parts.push(formatMs(ms));
+  if (e.api?.status != null) parts.push(String(e.api.status));
+  if (e.api?.responseBytes != null && e.api.responseBytes > 0) {
+    parts.push(formatBytes(e.api.responseBytes));
+  }
+  return parts.join(" · ");
+}
+
+function formatMs(ms: number): string {
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  return `${(ms / 1000).toFixed(ms < 10_000 ? 1 : 0)}s`;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n}B`;
+  if (n < 1024 * 1024) return `${Math.round(n / 1024)}KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)}MB`;
 }
 
 function isoSlug(d: Date): string {

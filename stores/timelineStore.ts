@@ -34,7 +34,41 @@ export type TimelineEventKind =
   | "saved-place"
   | "brief-sent"
   | "abort"
-  | "error";
+  | "error"
+  // Generic per-call trace event. `subsystem` carries the identity (which
+  // service/API), `level` defaults to "debug". Emitted by the diagnosticLog
+  // helper around every instrumented API call.
+  | "api-call";
+
+/** Which part of the system produced an event. Drives the row chip + color. */
+export type Subsystem =
+  | "gemini"
+  | "kindroid"
+  | "elevenlabs"
+  | "image-server"
+  | "location"
+  | "places"
+  | "weather"
+  | "obsidian"
+  | "audio"
+  | "session"
+  | "chat"
+  | "mode";
+
+/** Severity / verbosity. The viewer's filter keys off this; "debug" is the
+ *  per-call API trace, hidden from the default Activity view. */
+export type TimelineLevel = "info" | "debug" | "warn" | "error";
+
+/** Structured API-call metadata for trace events. */
+export interface TimelineApiInfo {
+  method?: string;
+  /** URL or endpoint path, with secrets redacted. */
+  endpoint?: string;
+  status?: number;
+  durationMs?: number;
+  requestBytes?: number;
+  responseBytes?: number;
+}
 
 export interface TimelineEvent {
   id: string;
@@ -47,8 +81,16 @@ export interface TimelineEvent {
   label: string;
   /** Optional second line of detail (place name, error message, count, etc.). */
   detail?: string;
+  /** Severity / verbosity. Absent = "info". */
+  level?: TimelineLevel;
+  /** Which service/subsystem produced this. */
+  subsystem?: Subsystem;
+  /** Wall-clock duration of the operation, when timed. */
+  durationMs?: number;
+  /** API-call specifics (method/endpoint/status/sizes) for trace events. */
+  api?: TimelineApiInfo;
   /** Optional diagnostic payload — appears as JSON under the entry in the
-   *  exported markdown. NOT shown in the in-app UI (would clutter). */
+   *  exported markdown, and as a key/value block in the row-tap detail sheet. */
   meta?: Record<string, unknown>;
 }
 
@@ -81,6 +123,32 @@ interface TimelineState {
 
 let exporterFn: (() => Promise<{ vaultPath: string }>) | null = null;
 
+// Hard cap on retained events. The full-trace logging makes the array grow
+// fast (a single send is ~5 debug events; the poller adds geocode/weather
+// debug events every 15s), so an unbounded list would bloat memory and the
+// debounced persistence write over a long road trip. When over the cap we
+// evict oldest DEBUG events first so the info/warn/error history a user
+// actually scrolls survives; only if the log is somehow all-non-debug do we
+// drop oldest of any level.
+const MAX_EVENTS = 4000;
+
+function capEvents(events: TimelineEvent[]): TimelineEvent[] {
+  if (events.length <= MAX_EVENTS) return events;
+  const result = events.slice();
+  let overflow = result.length - MAX_EVENTS;
+  for (let i = 0; i < result.length && overflow > 0; ) {
+    if ((result[i].level ?? "info") === "debug") {
+      result.splice(i, 1);
+      overflow--;
+    } else {
+      i++;
+    }
+  }
+  return result.length > MAX_EVENTS
+    ? result.slice(result.length - MAX_EVENTS)
+    : result;
+}
+
 function newId(): string {
   return `tl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -98,9 +166,13 @@ export const useTimeline = create<TimelineState>((set, get) => ({
       icon: event.icon,
       label: event.label,
       detail: event.detail,
+      level: event.level,
+      subsystem: event.subsystem,
+      durationMs: event.durationMs,
+      api: event.api,
       meta: event.meta,
     };
-    set((s) => ({ events: [...s.events, e], lastExport: null }));
+    set((s) => ({ events: capEvents([...s.events, e]), lastExport: null }));
   },
 
   clear: () => {

@@ -213,6 +213,8 @@ export const useAudio = create<AudioState>((set, get) => ({
       useTimeline.getState().append({
         kind: "error",
         icon: "⚠",
+        level: "error",
+        subsystem: "elevenlabs",
         label: "TTS synthesis failed",
         detail: msg,
         meta: { error: msg, phase: "audio-synth", messageId },

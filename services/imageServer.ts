@@ -1,6 +1,7 @@
 import { File } from "expo-file-system";
 import { getEnv } from "./env";
 import { combineWithAbortSignal } from "@/session/abortBus";
+import { tracedFetch } from "@/session/diagnosticLog";
 
 export interface ImageUploadResult {
   /** Absolute public URL to the uploaded image. */
@@ -75,7 +76,7 @@ export async function uploadImage(localPath: string): Promise<ImageUploadResult>
   const { signal, cleanup } = combineWithAbortSignal();
   let res: Response;
   try {
-    res = await fetch(uploadUrl, {
+    res = await tracedFetch("image-server", uploadUrl, {
       method: "PUT",
       headers: {
         "X-Upload-Key": uploadKey,
@@ -83,6 +84,7 @@ export async function uploadImage(localPath: string): Promise<ImageUploadResult>
       },
       body: bytes,
       signal,
+      label: `PUT /upload (.${ext})`,
     });
   } finally {
     cleanup();

@@ -1,4 +1,5 @@
 import { getEnv, requireEnv } from "./env";
+import { tracedFetch } from "@/session/diagnosticLog";
 
 export interface VaultSearchHit {
   path: string;
@@ -32,9 +33,10 @@ export async function readNote(path: string): Promise<string> {
     .map((seg) => encodeURIComponent(seg))
     .join("/");
   const url = `${vaultBase()}/vault/${encoded}`;
-  const res = await fetch(url, {
+  const res = await tracedFetch("obsidian", url, {
     method: "GET",
     headers: { ...authHeaders(), Accept: "text/markdown" },
+    label: `GET ${path}`,
   });
   if (!res.ok) {
     throw new Error(`obsidian.readNote ${path} → HTTP ${res.status}`);
@@ -52,10 +54,11 @@ export async function writeNote(path: string, content: string): Promise<void> {
     .map((seg) => encodeURIComponent(seg))
     .join("/");
   const url = `${vaultBase()}/vault/${encoded}`;
-  const res = await fetch(url, {
+  const res = await tracedFetch("obsidian", url, {
     method: "PUT",
     headers: { ...authHeaders(), "Content-Type": "text/markdown" },
     body: content,
+    label: `PUT ${path}`,
   });
   if (!res.ok) {
     throw new Error(`obsidian.writeNote ${path} → HTTP ${res.status}`);
@@ -77,10 +80,11 @@ export async function writeBinary(
     .map((seg) => encodeURIComponent(seg))
     .join("/");
   const url = `${vaultBase()}/vault/${encoded}`;
-  const res = await fetch(url, {
+  const res = await tracedFetch("obsidian", url, {
     method: "PUT",
     headers: { ...authHeaders(), "Content-Type": mimeType },
     body: data as unknown as BodyInit,
+    label: `PUT ${path} (binary)`,
   });
   if (!res.ok) {
     throw new Error(`obsidian.writeBinary ${path} → HTTP ${res.status}`);
@@ -98,9 +102,10 @@ export async function listFolder(folderPath: string): Promise<string[]> {
     .map((seg) => encodeURIComponent(seg))
     .join("/");
   const url = `${vaultBase()}/vault/${encoded}/`;
-  const res = await fetch(url, {
+  const res = await tracedFetch("obsidian", url, {
     method: "GET",
     headers: { ...authHeaders(), Accept: "application/json" },
+    label: `GET ${clean}/ (list)`,
   });
   if (!res.ok) {
     throw new Error(`obsidian.listFolder ${folderPath} → HTTP ${res.status}`);
@@ -120,9 +125,10 @@ export async function searchVault(
   const url = `${vaultBase()}/search/simple/?query=${encodeURIComponent(
     query
   )}&contextLength=${contextLength}`;
-  const res = await fetch(url, {
+  const res = await tracedFetch("obsidian", url, {
     method: "POST",
     headers: { ...authHeaders(), Accept: "application/json" },
+    label: `POST /search "${query}"`,
   });
   if (!res.ok) {
     throw new Error(`obsidian.searchVault "${query}" → HTTP ${res.status}`);

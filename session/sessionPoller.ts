@@ -65,10 +65,27 @@ let lastLoggedPlace: string | null = null;
 
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let pollInFlight = false;
+let pollInFlightSince = 0;
+
+// A single tick should never take this long. getCurrentLocation is now
+// timeout-bounded, but the weather + reverse-geocode fetches in
+// updateLiveContext have no timeouts of their own — if any of them hangs, the
+// finally that clears pollInFlight never runs and polling wedges for the rest
+// of the session. Past this bound we abandon the stuck tick's flag and let a
+// fresh tick proceed, so one hung network call can't brick the poller.
+const MAX_TICK_MS = 60_000;
 
 async function tick() {
-  if (pollInFlight) return;
+  if (pollInFlight) {
+    if (Date.now() - pollInFlightSince < MAX_TICK_MS) return;
+    console.warn(
+      `[poll] previous tick still in flight after ${Math.round(
+        (Date.now() - pollInFlightSince) / 1000
+      )}s — proceeding anyway`
+    );
+  }
   pollInFlight = true;
+  pollInFlightSince = Date.now();
   try {
     const loc = await getCurrentLocation();
     if (!loc) return;

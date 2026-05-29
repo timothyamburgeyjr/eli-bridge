@@ -1126,6 +1126,8 @@ export const useChat = create<ChatState>((set, get) => ({
         useTimeline.getState().append({
           kind: "message-sent",
           icon: "📤",
+          level: "info",
+          subsystem: "chat",
           label: ambientPing
             ? "Ambient ping sent"
             : text
@@ -1135,14 +1137,28 @@ export const useChat = create<ChatState>((set, get) => ({
             attachments.length > 0
               ? `${attachments.length} attachment${attachments.length === 1 ? "" : "s"}`
               : undefined,
+          meta: {
+            outgoing: finalRaw,
+            charCount: finalRaw.length,
+            imageUrls,
+            attachmentKinds: attachments.map((a) => a.kind),
+            ambientPing,
+          },
         });
         useTimeline.getState().append({
           kind: "eli-replied",
           icon: "💬",
+          level: "info",
+          subsystem: "kindroid",
           label: "Eli replied",
           detail: eliParsed.body
             ? eliParsed.body.slice(0, 80) + (eliParsed.body.length > 80 ? "…" : "")
             : undefined,
+          meta: {
+            reply: eliRaw,
+            emote: eliParsed.leadingEmote || undefined,
+            charCount: eliRaw.length,
+          },
         });
       };
 
@@ -1190,6 +1206,8 @@ export const useChat = create<ChatState>((set, get) => ({
         useTimeline.getState().append({
           kind: "message-queued",
           icon: "⏳",
+          level: "warn",
+          subsystem: "chat",
           label: "Send queued (transient error)",
           detail: msg,
           meta: { error: msg },
@@ -1203,6 +1221,8 @@ export const useChat = create<ChatState>((set, get) => ({
         useTimeline.getState().append({
           kind: "error",
           icon: "⚠",
+          level: "error",
+          subsystem: "chat",
           label: "Send failed",
           detail: msg,
           meta: { error: msg, phase: "send" },
@@ -1429,6 +1449,8 @@ export const useChat = create<ChatState>((set, get) => ({
       useTimeline.getState().append({
         kind: "error",
         icon: "⚠",
+        level: "error",
+        subsystem: "gemini",
         label: "Scene capture failed",
         detail: msg,
         meta: { error: msg, phase: "scene-capture" },

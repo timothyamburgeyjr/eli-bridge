@@ -43,6 +43,51 @@ export async function ensureLocationPermission(): Promise<boolean> {
   return res.granted;
 }
 
+// expo-location's getCurrentPositionAsync has NO built-in timeout. Under
+// Accuracy.High with weak signal it can hang indefinitely — it never resolves
+// AND never rejects, so a try/catch can't save you. That silently wedges every
+// caller; the session poller in particular guards re-entry with a pollInFlight
+// flag that only clears in a finally, so one hung fix kills GPS, driving
+// detection, the live banner and Quick Messages for the entire session (the
+// "stuck on Locating…" bug). We race the fix against a wall clock instead.
+const GPS_FIX_TIMEOUT_MS = 12_000;
+
+/**
+ * Resolve a position without the risk of hanging forever. Races a fresh
+ * high-accuracy fix against GPS_FIX_TIMEOUT_MS; on timeout, falls back to the
+ * OS's last-known position (an instant cached read) so a stuck GPS still
+ * yields a usable, if slightly stale, fix rather than nothing. Returns null
+ * only if both the fresh fix times out AND there's no cached position.
+ *
+ * The timed-out getCurrentPositionAsync promise is left dangling — it can't be
+ * cancelled — but it no longer blocks our control flow, so the caller's
+ * in-flight guard always clears.
+ */
+async function getPositionWithTimeout(): Promise<Location.LocationObject | null> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), GPS_FIX_TIMEOUT_MS);
+  });
+  try {
+    const fresh = await Promise.race([
+      Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+        // mayShowUserSettingsDialog: false so a low-power device setting
+        // doesn't silently degrade us back to coarse locations.
+        mayShowUserSettingsDialog: false,
+      }),
+      timeout,
+    ]);
+    if (fresh) return fresh;
+    console.warn(
+      `[gps] getCurrentPositionAsync exceeded ${GPS_FIX_TIMEOUT_MS}ms — falling back to last-known position`
+    );
+    return await Location.getLastKnownPositionAsync();
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /**
  * Get the current GPS fix as a `LocationData`. Returns null on permission
  * denial, timeout, or location services being off — caller should fall back
@@ -59,12 +104,8 @@ export async function getCurrentLocation(): Promise<LocationData | null> {
     const granted = await ensureLocationPermission();
     if (!granted) return null;
 
-    const pos = await Location.getCurrentPositionAsync({
-      accuracy: Location.Accuracy.High,
-      // mayShowUserSettingsDialog: false so a low-power device setting
-      // doesn't silently degrade us back to coarse locations.
-      mayShowUserSettingsDialog: false,
-    });
+    const pos = await getPositionWithTimeout();
+    if (!pos) return null;
 
     const loc = {
       latitude: pos.coords.latitude,

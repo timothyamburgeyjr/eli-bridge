@@ -103,6 +103,7 @@ export function abortPipeline(reason = "user-aborted"): void {
   useTimeline.getState().append({
     kind: "abort",
     icon: "⏹",
+    level: "warn",
     label: "Pipeline aborted by user",
     detail: reason,
   });

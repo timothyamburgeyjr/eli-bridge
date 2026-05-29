@@ -166,8 +166,23 @@ export const useSession = create<SessionState>((set, get) => ({
     // a drive and doesn't talk to Eli immediately).
     startSessionPoll();
 
-    // Fire both external I/O in parallel — neither gate the session becoming active
-    const bioPromise = (async () => {
+    // Activate the session NOW — BEFORE the biography/scene I/O below.
+    //
+    // That I/O hits the network (Obsidian vault read, GPS fix, Kindroid scene
+    // push) and any of it can hang on a dead-zone connection: the vault read
+    // and the GPS fix have no timeout of their own. The old code awaited
+    // Promise.all([bio, scene]) before flipping to "active", so one hung call
+    // left the session stuck in "starting" FOREVER — and a stuck "starting"
+    // makes the Start button a silent no-op (it early-returns on "starting")
+    // that never clears the prior session's timeline. Activation must not
+    // depend on best-effort context loading, so we go active immediately and
+    // let the two loads run fire-and-forget.
+    set({ status: "active" });
+    persistCurrent(get);
+
+    // Biography → prepended to the Gemini system prompt for this session.
+    // Fire-and-forget; a failure or hang here just means no bio this session.
+    void (async () => {
       if (!isVaultConfigured()) {
         console.log("[session] vault not configured, skipping biography load");
         return;
@@ -186,7 +201,8 @@ export const useSession = create<SessionState>((set, get) => ({
       }
     })();
 
-    const scenePromise = (async () => {
+    // Initial Kindroid scene push. Fire-and-forget for the same reason.
+    void (async () => {
       try {
         const scene = await composeInitialScene();
         await kindroidUpdateScene(scene);
@@ -195,10 +211,6 @@ export const useSession = create<SessionState>((set, get) => ({
         console.warn("[session] initial scene push failed:", err);
       }
     })();
-
-    await Promise.all([bioPromise, scenePromise]);
-    set({ status: "active" });
-    persistCurrent(get);
   },
 
   end: async (messages) => {

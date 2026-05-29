@@ -1,5 +1,6 @@
 import { requireEnv } from "./env";
 import { combineWithAbortSignal } from "@/session/abortBus";
+import { tracedFetch } from "@/session/diagnosticLog";
 
 const BASE_URL = "https://api.kindroid.ai/v1";
 
@@ -50,7 +51,7 @@ async function kindroidRequest(opts: RequestOpts): Promise<string> {
   const t =
     opts.timeoutMs > 0 ? setTimeout(() => ctl.abort(), opts.timeoutMs) : null;
   try {
-    const res = await fetch(`${BASE_URL}${opts.path}`, {
+    const res = await tracedFetch("kindroid", `${BASE_URL}${opts.path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -58,6 +59,7 @@ async function kindroidRequest(opts: RequestOpts): Promise<string> {
       },
       body: JSON.stringify(opts.body),
       signal,
+      label: `POST ${opts.path}`,
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => "(no body)");

@@ -2,6 +2,7 @@ import { GoogleGenerativeAI, GenerativeModel, Part, Content } from "@google/gene
 import { requireEnv } from "./env";
 import { GEMINI_SYSTEM_PROMPT } from "./geminiPrompt.generated";
 import { CONFIG } from "@/constants/config";
+import { logApiCall } from "@/session/diagnosticLog";
 
 // ── Singletons ────────────────────────────────────────────────────
 
@@ -612,8 +613,24 @@ function withDeadline<T>(
   label: string,
   signal?: AbortSignal
 ): Promise<T> {
+  // Single choke point for every Gemini SDK call — emit one timeline trace
+  // event here so each operation (assembleEmote, addAudioTags, analyzeScene,
+  // draftJournal, …) shows its duration + outcome with no per-call-site work.
+  // Debug level → hidden from the default Activity view, visible under "Full
+  // trace". durationMs covers retries since `promise` wraps withRetry().
+  const start = Date.now();
+  // The underlying SDK promise keeps running after a timeout/abort settles the
+  // outer promise, so its later resolution would emit a SECOND trace event.
+  // `settled` ensures exactly one event per call — whichever outcome wins.
+  let settled = false;
+  const trace = (level: "debug" | "error", detail?: string) => {
+    if (settled) return;
+    settled = true;
+    logApiCall({ subsystem: "gemini", label, durationMs: Date.now() - start, level, detail });
+  };
   return new Promise<T>((resolve, reject) => {
     if (signal?.aborted) {
+      trace("debug", "aborted before start");
       const e = new Error(`${label} aborted`);
       e.name = "AbortError";
       reject(e);
@@ -621,10 +638,12 @@ function withDeadline<T>(
     }
     const timer = setTimeout(() => {
       cleanup();
+      trace("error", `timed out after ${ms}ms`);
       reject(new Error(`${label} timed out after ${ms}ms`));
     }, ms);
     const onAbort = () => {
       cleanup();
+      trace("debug", "aborted");
       const e = new Error(`${label} aborted`);
       e.name = "AbortError";
       reject(e);
@@ -637,10 +656,12 @@ function withDeadline<T>(
     promise.then(
       (v) => {
         cleanup();
+        trace("debug");
         resolve(v);
       },
       (err) => {
         cleanup();
+        trace("error", err instanceof Error ? err.message : String(err));
         reject(err);
       }
     );

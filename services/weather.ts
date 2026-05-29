@@ -1,4 +1,5 @@
 import { getEnv } from "./env";
+import { tracedFetch } from "@/session/diagnosticLog";
 import type { SensorSnapshot } from "@/types";
 
 type WeatherShape = NonNullable<SensorSnapshot["weather"]>;
@@ -51,7 +52,7 @@ export async function getCurrentWeather(
 
   try {
     const url = `https://api.openweathermap.org/data/3.0/onecall?lat=${lat}&lon=${lon}&units=imperial&exclude=minutely,hourly,daily&appid=${key}`;
-    const res = await fetch(url);
+    const res = await tracedFetch("weather", url, { label: "GET onecall" });
     if (!res.ok) return cache?.data ?? null;
     const json = (await res.json()) as {
       current?: {

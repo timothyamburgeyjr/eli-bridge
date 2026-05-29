@@ -1,6 +1,7 @@
 import { File, Paths } from "expo-file-system";
 import { requireEnv } from "./env";
 import { currentAbortSignal } from "@/session/abortBus";
+import { logApiCall } from "@/session/diagnosticLog";
 
 const BASE_URL = "https://api.elevenlabs.io/v1";
 
@@ -11,12 +12,23 @@ const BASE_URL = "https://api.elevenlabs.io/v1";
 // stall timer as the actual connectivity check.
 //
 // FIRST_BYTE_TIMEOUT_MS  — how long we wait for ElevenLabs to start sending.
+//                          Sized for eleven_v3, which is the expressive (not
+//                          real-time) model: its time-to-first-byte is high
+//                          and spikes under load, so a longer reply can take
+//                          45s+ just to START streaming. At the old 45s, those
+//                          legitimate-but-slow synths got aborted mid-flight;
+//                          the orphaned generation kept occupying an ElevenLabs
+//                          concurrency slot server-side, so the NEXT request
+//                          waited on a busy slot, also timed out, orphaned
+//                          another — a cascade that bricked TTS for the rest of
+//                          the session until the app was relaunched. 90s lets
+//                          v3 finish cleanly instead of orphaning.
 // STALL_TIMEOUT_MS       — once chunks start, max gap between chunks before
 //                          we give up. The real "is the network alive" check.
 // HARD_CAP_MS            — sanity backstop. No synth should genuinely need
 //                          three minutes; anything longer is a pathological
 //                          case worth aborting.
-const FIRST_BYTE_TIMEOUT_MS = 45_000;
+const FIRST_BYTE_TIMEOUT_MS = 90_000;
 const STALL_TIMEOUT_MS = 20_000;
 const HARD_CAP_MS = 180_000;
 
@@ -132,6 +144,7 @@ export async function synthesizeToFile(
   }
 
   // Got headers back — clear the first-byte timer; chunk-stall takes over.
+  const headersAtMs = Date.now() - startTime;
   if (firstByteTimer) {
     clearTimeout(firstByteTimer);
     firstByteTimer = null;
@@ -150,6 +163,14 @@ export async function synthesizeToFile(
   // (RN/Hermes may buffer the whole response), we fall back to arrayBuffer.
   const chunks: Uint8Array[] = [];
   const reader = (res.body as ReadableStream<Uint8Array> | null)?.getReader?.();
+  // Diagnostic: did fetch resolve at HTTP headers (streaming) or only after the
+  // whole body buffered? This is THE number that tells us whether a slow synth
+  // is a clogged pipe (headers slow → wedging) or genuine generate-time
+  // (buffered → v3 is just slow). Grep `[elevenlabs]` in logcat.
+  console.log(
+    `[elevenlabs] headers in ${headersAtMs}ms · mode=${reader ? "streaming" : "buffered"}`
+  );
+  let firstChunkAtMs: number | undefined;
   try {
     if (reader) {
       // Initial stall timer — bytes should start arriving within
@@ -159,6 +180,10 @@ export async function synthesizeToFile(
         const { done, value } = await reader.read();
         if (done) break;
         if (value && value.length > 0) {
+          if (firstChunkAtMs === undefined) {
+            firstChunkAtMs = Date.now() - startTime;
+            console.log(`[elevenlabs] first audio chunk at ${firstChunkAtMs}ms`);
+          }
           chunks.push(value);
           // Reset the stall timer — we just got data, the connection's alive.
           if (stallTimer) clearTimeout(stallTimer);
@@ -173,6 +198,15 @@ export async function synthesizeToFile(
     }
   } catch (err) {
     clearAll();
+    // Explicitly release the stream. An aborted fetch whose reader is just
+    // abandoned can leave the underlying HTTP connection half-read in the
+    // Android (OkHttp) pool; cancel() returns it cleanly so repeated synth
+    // failures don't exhaust the per-host connection limit.
+    try {
+      await reader?.cancel();
+    } catch {
+      // reader already errored/closed — release is best-effort
+    }
     if (isAbortError(err)) {
       const elapsed = Math.round((Date.now() - startTime) / 1000);
       const reason =
@@ -214,11 +248,39 @@ export async function synthesizeToFile(
   file.create();
   file.write(merged);
 
-  const elapsedSec = Math.round((Date.now() - startTime) / 1000);
+  const totalMs = Date.now() - startTime;
+  const elapsedSec = Math.round(totalMs / 1000);
   const sizeKB = Math.round(totalBytes / 1024);
   console.log(
     `[elevenlabs] synth ok: ${sizeKB}KB in ${elapsedSec}s (${chunks.length} chunks)`
   );
+
+  // Timeline trace — the headers/first-chunk/mode timing is exactly the data
+  // that distinguishes "v3 is slow" (buffered, high total time) from "pipe is
+  // clogged" (streaming, slow headers). Tap this row in the Session Timeline
+  // to see it. `meta` carries the full breakdown; `detail` is the one-liner.
+  logApiCall({
+    subsystem: "elevenlabs",
+    label: "Synth ok",
+    method: "POST",
+    endpoint: `/text-to-speech/{voice}/stream?model=${body.model_id}`,
+    status: 200,
+    durationMs: totalMs,
+    requestBytes: body.text.length,
+    responseBytes: totalBytes,
+    detail: `${sizeKB}KB · ${elapsedSec}s · ${reader ? "streaming" : "buffered"} · ${chunks.length} chunk${chunks.length === 1 ? "" : "s"}`,
+    meta: {
+      model: body.model_id,
+      format: DEFAULT_FORMAT,
+      mode: reader ? "streaming" : "buffered",
+      headersMs: headersAtMs,
+      firstChunkMs: firstChunkAtMs ?? null,
+      totalMs,
+      totalBytes,
+      chunks: chunks.length,
+      textLength: body.text.length,
+    },
+  });
 
   return file.uri;
 }
