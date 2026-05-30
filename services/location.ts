@@ -136,15 +136,17 @@ export async function getCurrentLocation(): Promise<LocationData | null> {
 }
 
 /**
- * Infer transport mode from GPS speed. Not as accurate as Google's Activity
- * Recognition API (which is a native module deferred to Phase 8), but
- * serviceable for the common cases.
+ * Infer transport mode from GPS speed. **Fallback path** — Google's Activity
+ * Recognition API (modules/activity-recognition + services/
+ * activityRecognition.ts) is the primary source of activity now; this is
+ * what fills in when AR returns null (permission denied, no detection yet,
+ * Play Services unavailable). Serviceable but inferior in stop-and-go
+ * driving, which is why we moved off it as the default.
  *
  * Single-sample variant — exposed mostly for the diagnostics panel where the
- * raw GPS-reported speed is the right thing to display. Production code paths
- * (poller, liveSensors) should use `inferActivityFromMotion` instead, which
- * smooths over GPS speed glitches that flip the user to "still" when they're
- * actually moving (red lights, indoor fixes, brief satellite-loss dips).
+ * raw GPS-reported speed is the right thing to display. Production fallback
+ * paths use `inferActivityFromMotion` instead, which smooths over GPS speed
+ * glitches.
  *
  * Speed in m/s from expo-location. 1 m/s ≈ 2.24 mph.
  */

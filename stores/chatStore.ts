@@ -27,7 +27,6 @@ import { usePeople, Person } from "@/people/PeopleStore";
 import { getPersonContext, resetPersonContextCache } from "@/people/personContext";
 import { resolveOrCreateProfilePath } from "@/people/profileLinker";
 import { useMode } from "@/stores/modeStore";
-import { useSettings } from "@/stores/settingsStore";
 import { isOffline, useConnection } from "@/stores/connectionStore";
 import { useRecovery } from "@/stores/recoveryStore";
 import { useTimeline } from "@/stores/timelineStore";
@@ -751,12 +750,11 @@ export const useChat = create<ChatState>((set, get) => ({
       const sensors = state.sensorOverride ?? (await gatherSensorSnapshot());
       const history = buildHistory(state.messages);
 
-      // ── Step 1a: Evaluate behavioral mode transitions. Conversation Mode
-      // auto-entry begins its 10s grace banner when activity is IN_VEHICLE;
-      // the UI layer owns the confirm/cancel. Venue transitions are computed
-      // but no longer surfaced as cards — Tim manages venue context via Save Place.
-      const conversationAutoEnabled = useSettings.getState().conversationModeAuto;
-      useMode.getState().evaluateTransitions(sensors, { conversationAutoEnabled });
+      // ── Step 1a: Evaluate venue transitions on the fresh snapshot.
+      // Conversation Mode is manual-only; venue transitions are computed
+      // here but no longer surfaced as cards — Tim manages venue context
+      // via Save Place.
+      useMode.getState().evaluateTransitions(sensors);
 
       const images = await Promise.all(
         attachments.filter((a) => a.kind === "image").map(toInlineBlob)

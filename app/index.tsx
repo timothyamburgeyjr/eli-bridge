@@ -29,6 +29,7 @@ import { bestPlaceType, prettyPlaceType } from "@/services/places";
 import { DiagnosticsPanel } from "@/components/diagnostics/DiagnosticsPanel";
 import { PeopleRoster } from "@/components/people/PeopleRoster";
 import { EliAvatar } from "@/components/common/EliAvatar";
+import { ActivityPermissionBanner } from "@/components/common/ActivityPermissionBanner";
 import { SCENARIOS, getScenario, ScenarioId } from "@/data/scenarios";
 
 type ChatSource = "live" | ScenarioId;
@@ -161,6 +162,7 @@ export default function Main() {
         onTimelinePress={() => setTimelineOpen(true)}
         onSettingsPress={() => setSettingsOpen(true)}
       />
+      <ActivityPermissionBanner />
 
       {!showChat ? (
         <View style={styles.empty}>

@@ -3,14 +3,15 @@ import type { SensorSnapshot } from "@/types";
 import { useTimeline } from "@/stores/timelineStore";
 
 /**
- * Mode store — tracks Conversation Mode (formerly Drive Mode) and Venue Mode.
+ * Mode store — tracks Conversation Mode and Venue Mode.
  *
  * Conversation Mode is the full-screen tap-PTT overlay with image attachments
- * disabled and ElevenLabs forced on. It auto-activates when the activity
- * inference reports `car` for a sustained window — the original purpose was
- * driving, and the auto-trigger is unchanged, but the mode is named for the
- * conversational UX it provides rather than the trigger condition. Tim can
- * also enter it manually from the header.
+ * disabled and ElevenLabs forced on. It is entered/exited MANUALLY from the
+ * header button only — the previous auto-engagement on sustained IN_VEHICLE
+ * was removed because (a) it flapped in the field on the GPS-speed heuristic
+ * and (b) Tim uses Conversation Mode in many non-driving situations now.
+ * Activity Recognition (the replacement for that heuristic) is intentionally
+ * NOT wired to mode transitions — it feeds the emote layer as context only.
  */
 
 export interface VenueBoundary {
@@ -25,42 +26,19 @@ export interface VenueBoundary {
   placeType: string;
 }
 
-export type ConversationActivation = "manual" | "auto";
-
 interface ModeState {
   /** Conversation Mode active — full-screen tap-PTT overlay, image attachments
    *  disabled, ElevenLabs forced on. */
   conversation: boolean;
-  /** How Conversation Mode was activated. "auto" → shows the 10s cancellation banner. */
-  conversationSource: ConversationActivation | null;
-  /** ISO timestamp of when Conversation Mode auto-entry is pending (banner visible).
-   *  null when not pending. */
-  conversationPendingSince: string | null;
-  /**
-   * Consecutive non-car ticks seen since the last car tick. Only used for
-   * auto-exit hysteresis — we require multiple sustained non-car samples
-   * before dropping the mode, so a red light or a 25-mph school zone
-   * doesn't flip the mode off mid-drive. Reset to 0 on any car tick.
-   */
-  nonCarStreak: number;
 
   /** VenueMode active — queue Waypoints suppressed, RideCards enabled. */
   venue: boolean;
   /** Current venue's boundary — used to auto-exit when Tim walks off the property. */
   venueBoundary: VenueBoundary | null;
 
-  /** Manually enter Conversation Mode (from the header button). */
+  /** Enter Conversation Mode (from the header button). */
   enterConversationManual: () => void;
-  /**
-   * Begin the 10-second auto-entry banner. Call when sustained IN_VEHICLE
-   * activity is first detected. After 10s without a cancel, call confirmConversationAuto().
-   */
-  beginConversationAuto: () => void;
-  /** Confirm auto-entry after the 10s grace period. */
-  confirmConversationAuto: () => void;
-  /** Cancel a pending auto-entry (user tapped "cancel" in the banner). */
-  cancelConversationAuto: () => void;
-  /** Exit Conversation Mode (manual or auto-stop when activity !== car for ~45s). */
+  /** Exit Conversation Mode. */
   exitConversation: () => void;
 
   /** Enter VenueMode with a specific boundary. */
@@ -69,19 +47,14 @@ interface ModeState {
   exitVenue: () => void;
 
   /**
-   * Feed a fresh sensor snapshot into the store to let it compute auto
-   * transitions. Safe to call on every message send — idempotent when the
-   * state is already correct. Returns a diff describing any transitions that
-   * fired this tick, so the caller can emit InterruptCard / VenueModeCard etc.
+   * Feed a fresh sensor snapshot into the store to evaluate venue transitions.
+   * Safe to call on every tick — idempotent when the state is already correct.
+   * Returns a diff describing any transitions that fired this tick.
    */
-  evaluateTransitions: (
-    snapshot: SensorSnapshot,
-    opts?: { conversationAutoEnabled?: boolean }
-  ) => ModeTransitions;
+  evaluateTransitions: (snapshot: SensorSnapshot) => ModeTransitions;
 }
 
 export interface ModeTransitions {
-  conversationAutoBanner?: { name: "entering" | "cancelled" | "exited" };
   venueEntered?: VenueBoundary;
   venueExited?: VenueBoundary;
 }
@@ -124,30 +97,14 @@ function distanceM(
   return 2 * R * Math.asin(Math.sqrt(x));
 }
 
-/**
- * How many consecutive non-car ticks are required before auto-exit fires.
- * At a 15s polling interval this is ~45s of sustained stop/walk. Long enough
- * to absorb stoplights and school zones; short enough to switch out promptly
- * when Tim parks.
- */
-const EXIT_STREAK_THRESHOLD = 3;
-
 export const useMode = create<ModeState>((set, get) => ({
   conversation: false,
-  conversationSource: null,
-  conversationPendingSince: null,
-  nonCarStreak: 0,
   venue: false,
   venueBoundary: null,
 
   enterConversationManual: () => {
     if (get().conversation) return;
-    set({
-      conversation: true,
-      conversationSource: "manual",
-      conversationPendingSince: null,
-      nonCarStreak: 0,
-    });
+    set({ conversation: true });
     useTimeline.getState().append({
       kind: "drive-enter",
       icon: "🎙",
@@ -155,48 +112,14 @@ export const useMode = create<ModeState>((set, get) => ({
     });
   },
 
-  beginConversationAuto: () => {
-    const s = get();
-    if (s.conversation || s.conversationPendingSince) return;
-    set({ conversationPendingSince: new Date().toISOString() });
-  },
-
-  confirmConversationAuto: () => {
-    const s = get();
-    if (s.conversation) return;
-    set({
-      conversation: true,
-      conversationSource: "auto",
-      conversationPendingSince: null,
-      nonCarStreak: 0,
-    });
-    useTimeline.getState().append({
-      kind: "drive-enter",
-      icon: "🎙",
-      label: "Conversation Mode entered (auto · vehicle detected)",
-    });
-  },
-
-  cancelConversationAuto: () => {
-    set({ conversationPendingSince: null });
-  },
-
   exitConversation: () => {
-    const was = get().conversation;
-    if (!was && !get().conversationPendingSince) return;
-    set({
-      conversation: false,
-      conversationSource: null,
-      conversationPendingSince: null,
-      nonCarStreak: 0,
+    if (!get().conversation) return;
+    set({ conversation: false });
+    useTimeline.getState().append({
+      kind: "drive-exit",
+      icon: "🔇",
+      label: "Conversation Mode exited",
     });
-    if (was) {
-      useTimeline.getState().append({
-        kind: "drive-exit",
-        icon: "🔇",
-        label: "Conversation Mode exited",
-      });
-    }
   },
 
   enterVenue: (boundary) => {
@@ -210,76 +133,37 @@ export const useMode = create<ModeState>((set, get) => ({
     set({ venue: false, venueBoundary: null });
   },
 
-  evaluateTransitions: (snapshot, opts) => {
+  evaluateTransitions: (snapshot) => {
     const transitions: ModeTransitions = {};
     const s = get();
 
-    // ── VenueMode ────────────────────────────────────────────────────
     const place = snapshot.location;
-    if (place) {
-      if (!s.venue) {
-        // Enter check
-        if (place.placeType && VENUE_TYPES.has(place.placeType) && place.placeName) {
-          const boundary: VenueBoundary = {
-            latitude: place.latitude,
-            longitude: place.longitude,
-            radiusM: defaultVenueRadiusM(place.placeType),
-            name: place.placeName,
-            placeType: place.placeType,
-          };
-          set({ venue: true, venueBoundary: boundary });
-          transitions.venueEntered = boundary;
-        }
-      } else if (s.venueBoundary) {
-        // Exit check — Tim has walked past the radius
-        const d = distanceM(
-          place.latitude,
-          place.longitude,
-          s.venueBoundary.latitude,
-          s.venueBoundary.longitude
-        );
-        if (d > s.venueBoundary.radiusM) {
-          transitions.venueExited = s.venueBoundary;
-          set({ venue: false, venueBoundary: null });
-        }
-      }
-    }
+    if (!place) return transitions;
 
-    // ── Conversation Mode (auto) ─────────────────────────────────────
-    const autoAllowed = opts?.conversationAutoEnabled ?? true;
-    const isCar = snapshot.activity === "car";
-
-    if (autoAllowed && !s.conversation) {
-      // Entry path — begin the 10s confirm banner on first car tick.
-      if (isCar && !s.conversationPendingSince) {
-        set({ conversationPendingSince: new Date().toISOString() });
-        transitions.conversationAutoBanner = { name: "entering" };
+    if (!s.venue) {
+      // Enter check
+      if (place.placeType && VENUE_TYPES.has(place.placeType) && place.placeName) {
+        const boundary: VenueBoundary = {
+          latitude: place.latitude,
+          longitude: place.longitude,
+          radiusM: defaultVenueRadiusM(place.placeType),
+          name: place.placeName,
+          placeType: place.placeType,
+        };
+        set({ venue: true, venueBoundary: boundary });
+        transitions.venueEntered = boundary;
       }
-    } else if (s.conversation && s.conversationSource === "auto") {
-      // Exit path — require EXIT_STREAK_THRESHOLD consecutive non-car ticks
-      // before dropping the mode. Stoplights and slow zones briefly drop GPS
-      // speed under the car threshold; a single tick of "not-car" shouldn't
-      // flip Conversation Mode off mid-drive.
-      if (isCar) {
-        if (s.nonCarStreak > 0) set({ nonCarStreak: 0 });
-      } else {
-        const next = s.nonCarStreak + 1;
-        if (next >= EXIT_STREAK_THRESHOLD) {
-          set({
-            conversation: false,
-            conversationSource: null,
-            conversationPendingSince: null,
-            nonCarStreak: 0,
-          });
-          transitions.conversationAutoBanner = { name: "exited" };
-          useTimeline.getState().append({
-            kind: "drive-exit",
-            icon: "🔇",
-            label: "Conversation Mode exited (auto · sustained non-car)",
-          });
-        } else {
-          set({ nonCarStreak: next });
-        }
+    } else if (s.venueBoundary) {
+      // Exit check — Tim has walked past the radius
+      const d = distanceM(
+        place.latitude,
+        place.longitude,
+        s.venueBoundary.latitude,
+        s.venueBoundary.longitude
+      );
+      if (d > s.venueBoundary.radiusM) {
+        transitions.venueExited = s.venueBoundary;
+        set({ venue: false, venueBoundary: null });
       }
     }
 

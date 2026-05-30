@@ -14,6 +14,8 @@ import { getCurrentLocation, isAtHome, inferActivityFromSpeed } from "@/services
 import { reverseGeocode } from "@/services/places";
 import { getCurrentWeather } from "@/services/weather";
 import { readBarometer, isBarometerAvailable } from "@/services/sensors";
+import { getDetectedActivityFull } from "@/services/activityRecognition";
+import { hasActivityPermission } from "@/modules/activity-recognition";
 
 type Status = "pending" | "pass" | "fail" | "warn";
 
@@ -130,6 +132,44 @@ export function DiagnosticsPanel({ visible, onClose }: Props) {
       }
       setRows([...results]);
     }
+
+    // Activity Recognition — native module + Play Services. We check
+    // permission via the module directly (the cached state in the service
+    // wrapper may not be initialized yet if Diagnostics is opened before
+    // a session starts).
+    let arPermGranted = false;
+    try {
+      arPermGranted = await hasActivityPermission();
+    } catch {
+      arPermGranted = false;
+    }
+    if (!arPermGranted) {
+      results.push({
+        name: "Activity recognition",
+        status: "fail",
+        detail: "Permission denied — falling back to GPS-speed heuristic",
+        subdetail:
+          "Grant via Settings → Apps → Eli's Bridge → Permissions → Physical Activity",
+      });
+    } else {
+      const ar = await getDetectedActivityFull();
+      if (!ar || !ar.activity) {
+        results.push({
+          name: "Activity recognition",
+          status: "warn",
+          detail: "Granted, but no reading yet — first detection takes ~30s",
+        });
+      } else {
+        const ageSec = Math.max(0, Math.round((Date.now() - ar.timestamp) / 1000));
+        results.push({
+          name: "Activity recognition",
+          status: "pass",
+          detail: `${ar.activity} (${ar.confidence}% confidence)`,
+          subdetail: `last update ${ageSec}s ago`,
+        });
+      }
+    }
+    setRows([...results]);
 
     // Barometer
     const baroAvail = await isBarometerAvailable();

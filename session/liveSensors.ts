@@ -8,6 +8,7 @@ import {
 import { reverseGeocode } from "@/services/places";
 import { getCurrentWeather } from "@/services/weather";
 import { readBarometer, startBarometerWatch } from "@/services/sensors";
+import { getDetectedActivity } from "@/services/activityRecognition";
 import { STUB_SENSOR_SNAPSHOT } from "./sensorStub";
 
 // Start the barometer at module load — it's cheap and the 30-min delta needs
@@ -36,9 +37,15 @@ export async function gatherSensorSnapshot(): Promise<SensorSnapshot> {
   // same module-level buffer in services/location.ts, so a message sent
   // while parked at a red light gets the windowed "you were driving" signal.
   recordMotionSample(loc);
+  // Activity Recognition is primary — Android's sensor-fusion result holds
+  // IN_VEHICLE through stoplights and other stationary-but-driving moments
+  // that the GPS-speed heuristic gets wrong. The heuristic stays as a
+  // fallback for when AR returns null (permission denied, no detection yet,
+  // Play Services unavailable).
+  const detected = await getDetectedActivity();
   const snapshot: SensorSnapshot = {
     location: loc,
-    activity: inferActivityFromMotion(loc.speed),
+    activity: detected ?? inferActivityFromMotion(loc.speed),
   };
 
   // Home shortcut — if within the geofence, don't burn a Places API call

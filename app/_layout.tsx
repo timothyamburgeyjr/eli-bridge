@@ -7,7 +7,6 @@ import { View } from "react-native";
 import { C } from "@/constants/theme";
 import { usePeople } from "@/people/PeopleStore";
 import { ConversationOverlay } from "@/components/conversation/ConversationOverlay";
-import { ConversationAutoBanner } from "@/components/conversation/ConversationAutoBanner";
 import { RecoveryPopup } from "@/components/common/RecoveryPopup";
 import { OversizePayloadModal } from "@/components/common/OversizePayloadModal";
 import { installVenueBridge } from "@/session/venueBridge";
@@ -61,9 +60,8 @@ export default function RootLayout() {
               contentStyle: { backgroundColor: C.bg },
             }}
           />
-          {/* Driving Mode overlay is rendered at the layout root so it's
+          {/* Conversation Mode overlay is rendered at the layout root so it's
               visible above all screens, including Settings, modals, etc. */}
-          <ConversationAutoBanner />
           <ConversationOverlay />
           {/* Timeout-recovery popup — overlays everything, Driving Mode
               included, when a pipeline step fails transiently. */}

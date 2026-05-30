@@ -9,8 +9,8 @@ import {
 } from "@/services/location";
 import { getCurrentWeather } from "@/services/weather";
 import { reverseGeocode } from "@/services/places";
+import { getDetectedActivity } from "@/services/activityRecognition";
 import { useMode } from "@/stores/modeStore";
-import { useSettings } from "@/stores/settingsStore";
 import { useChat } from "@/stores/chatStore";
 import { useAudio } from "@/stores/audioStore";
 import { useTimeline } from "@/stores/timelineStore";
@@ -94,15 +94,20 @@ async function tick() {
     // be operating on stale data and the very first "0 m/s" sample after a
     // long drive could still flip activity to "still".
     recordMotionSample(loc);
+    // Activity Recognition is primary; the GPS-speed heuristic is fallback.
+    // See services/activityRecognition.ts — it returns null when AR can't
+    // produce a reading (permission denied, not yet detected, Play Services
+    // unavailable), in which case the motion-buffer-smoothed heuristic
+    // covers it.
+    const detected = await getDetectedActivity();
     const snapshot: SensorSnapshot = {
       location: loc,
-      activity: inferActivityFromMotion(loc.speed),
+      activity: detected ?? inferActivityFromMotion(loc.speed),
     };
-    const conversationAutoEnabled = useSettings.getState().conversationModeAuto;
-    // Run for the Conversation-Mode auto-entry side effect (banner state).
-    // Venue transitions returned here are intentionally ignored — Tim controls
-    // venue context through Save Place rather than auto-detection.
-    useMode.getState().evaluateTransitions(snapshot, { conversationAutoEnabled });
+    // Evaluates venue transitions only — Conversation Mode no longer
+    // auto-engages on activity. Venue transitions returned here are
+    // intentionally ignored; Tim manages venue context via Save Place.
+    useMode.getState().evaluateTransitions(snapshot);
 
     await updateLiveContext(loc, snapshot);
 

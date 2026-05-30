@@ -1,0 +1,9 @@
+{
+  "name": "activity-recognition",
+  "version": "0.1.0",
+  "description": "On-device activity recognition (STILL/WALKING/RUNNING/ON_BICYCLE/IN_VEHICLE) via Google Play Services",
+  "main": "index.ts",
+  "keywords": ["react-native", "expo"],
+  "license": "UNLICENSED",
+  "private": true
+}
