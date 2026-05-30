@@ -41,11 +41,11 @@ const POLL_INTERVAL_MS = 15_000;
 // reasoning). At 3 min the watchdog would force-error a real in-progress
 // send; at 6 min it only fires when something is actually stuck.
 const STUCK_SEND_MS = 360_000;
-// addAudioTags(15s) + synthesizeToFile(180s hard cap) + 30s slack. The new
-// synth wall isn't a single timer — it's a first-byte timer + per-chunk
-// stall timer + a 3-min hard cap. The watchdog only needs to cover the
-// worst case where all three legitimately accumulate.
-const STUCK_GENERATING_MS = 225_000;
+// addAudioTags (15s) + synthesizeToFile (HARD_CAP_MS = 240s in buffered mode)
+// + 45s slack = 300s. RN's fetch buffers the whole MP3 for v3, so the synth
+// path is one long wait rather than a streaming pipeline; the watchdog has
+// to cover that worst case before it can claim a synth is "stuck."
+const STUCK_GENERATING_MS = 300_000;
 
 // Live-banner geocode cache: re-geocode only when Tim has moved >100m from
 // the last cached point. Avoids hitting the Places API every 15s while

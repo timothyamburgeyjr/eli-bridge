@@ -38,20 +38,44 @@ declare class ActivityRecognitionModuleType extends NativeModule {
   getCurrentActivity(): Promise<DetectedActivity | null>;
 }
 
-const native = requireNativeModule<ActivityRecognitionModuleType>("ActivityRecognitionModule");
+// Defensive load. `requireNativeModule` throws synchronously at module-load
+// time when the native module isn't registered, which means an OTA push to an
+// APK that pre-dates this module (e.g., the f5deaa3 preview build still in the
+// field) would crash the entire bundle on import. We swallow that here and
+// fall back to a null shim so every JS consumer can keep importing this
+// module unchanged; activity reads return null and the snapshot construction
+// transparently degrades to the GPS-speed heuristic. Once a fresh native
+// build is installed, the module loads and real AR starts working with no
+// further code change.
+let native: ActivityRecognitionModuleType | null = null;
+try {
+  native = requireNativeModule<ActivityRecognitionModuleType>("ActivityRecognitionModule");
+} catch {
+  native = null;
+}
+
+/** True when the Kotlin native module is actually present (i.e., the APK was
+ *  built with this module). False on older APKs receiving this JS via OTA. */
+export function isActivityRecognitionAvailable(): boolean {
+  return native !== null;
+}
 
 export async function hasActivityPermission(): Promise<boolean> {
+  if (!native) return false;
   return native.hasPermission();
 }
 
 export async function startActivityUpdates(intervalMs = 30_000): Promise<void> {
+  if (!native) return;
   return native.startUpdates(intervalMs);
 }
 
 export async function stopActivityUpdates(): Promise<void> {
+  if (!native) return;
   return native.stopUpdates();
 }
 
 export async function getCurrentActivity(): Promise<DetectedActivity | null> {
+  if (!native) return null;
   return native.getCurrentActivity();
 }

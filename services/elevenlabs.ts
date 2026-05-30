@@ -5,32 +5,36 @@ import { logApiCall } from "@/session/diagnosticLog";
 
 const BASE_URL = "https://api.elevenlabs.io/v1";
 
-// Three independent timeouts replace the old single 60s wall clock. The old
-// approach killed slow-but-functional connections (rural cell, packet loss)
-// that were still transferring data when the timer hit zero. The new shape
-// says "I'll wait as long as you keep sending me data" with the per-chunk
-// stall timer as the actual connectivity check.
+// Timeout design notes — UPDATED based on field-captured trace data:
 //
-// FIRST_BYTE_TIMEOUT_MS  — how long we wait for ElevenLabs to start sending.
-//                          Sized for eleven_v3, which is the expressive (not
-//                          real-time) model: its time-to-first-byte is high
-//                          and spikes under load, so a longer reply can take
-//                          45s+ just to START streaming. At the old 45s, those
-//                          legitimate-but-slow synths got aborted mid-flight;
-//                          the orphaned generation kept occupying an ElevenLabs
-//                          concurrency slot server-side, so the NEXT request
-//                          waited on a busy slot, also timed out, orphaned
-//                          another — a cascade that bricked TTS for the rest of
-//                          the session until the app was relaunched. 90s lets
-//                          v3 finish cleanly instead of orphaning.
-// STALL_TIMEOUT_MS       — once chunks start, max gap between chunks before
-//                          we give up. The real "is the network alive" check.
-// HARD_CAP_MS            — sanity backstop. No synth should genuinely need
-//                          three minutes; anything longer is a pathological
-//                          case worth aborting.
-const FIRST_BYTE_TIMEOUT_MS = 90_000;
+// Every successful synth in production shows `mode=buffered`, `chunks=1`,
+// `firstChunkMs=null`. That means React Native's `fetch` on this build does
+// NOT support streaming response bodies — it buffers the entire MP3 before
+// `await fetch()` resolves. So the timer we *called* "first byte" is really
+// measuring **total time to download the whole response**, and there's no
+// real "headers vs body" split to guard separately.
+//
+// For eleven_v3 in buffered mode, generation scales with text length at
+// roughly 25–40 ms/char. A ~1100-char reply averages ~30s but ElevenLabs'
+// server-side variance occasionally pushes a single synth past 90s. At the
+// old 90s wall, those legitimate-but-slow generations got cut off and
+// surfaced as "TTS synthesis failed" even though the request was healthy.
+//
+// FIRST_BYTE_TIMEOUT_MS  — kept structurally for the case where RN ever DOES
+//                          stream the body (unchanged code path); in buffered
+//                          mode it co-fires with HARD_CAP_MS so neither limits
+//                          us prematurely. Set equal to the hard cap.
+// STALL_TIMEOUT_MS       — only meaningful in streaming mode (per-chunk gap).
+//                          Inert in buffered mode; left for when streaming
+//                          becomes available on the platform.
+// HARD_CAP_MS            — the ONE wall that matters in buffered mode. Sized
+//                          for v3's worst-case generation: 4 minutes covers
+//                          even outlier long replies. Anything longer is
+//                          genuinely pathological and the recovery popup is
+//                          the right escape hatch.
+const HARD_CAP_MS = 240_000;
+const FIRST_BYTE_TIMEOUT_MS = HARD_CAP_MS;
 const STALL_TIMEOUT_MS = 20_000;
-const HARD_CAP_MS = 180_000;
 
 // 64kbps is roughly half the data of 128kbps for basically identical quality
 // through a car speaker (or any single-speaker playback). Cuts transfer time
