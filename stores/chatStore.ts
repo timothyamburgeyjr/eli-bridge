@@ -1009,72 +1009,89 @@ export const useChat = create<ChatState>((set, get) => ({
         pendingLookups: [], // lookup context consumed
       });
 
-      // ── Kindroid step ── image upload + relay to Eli. Extracted into a
-      // closure so the recovery popup can re-run JUST this step on a
-      // transient failure — without redoing the Gemini emote assembly.
-      // References itself as its own retry continuation.
-      const deliverToKindroid = async (): Promise<void> => {
-        set({ status: "sending", sendStartedAt: Date.now() });
-
-        // Upload any images to the self-hosted image server for image_urls.
-        // Video attachments contribute too: we extract 5 equidistant frames
-        // from each clip and upload them as additional image_urls so Eli
-        // gets a visual sequence representing the video alongside the
-        // Gemini-built emote that describes the motion + audio.
-        let imageUrls: string[] | undefined;
-        const imageAtts = attachments.filter((a) => a.kind === "image");
-        const videoAtts = attachments.filter((a) => a.kind === "video");
-        if (
-          (imageAtts.length > 0 || videoAtts.length > 0) &&
-          isImageServerConfigured()
-        ) {
-          imageUrls = [];
-          for (const att of imageAtts) {
-            try {
-              const result = await uploadImage(att.localPath);
-              imageUrls.push(result.url);
-            } catch (err) {
-              // Non-fatal — Eli just won't see that image
-              console.warn("Image server upload failed", err);
-            }
-          }
-          for (const att of videoAtts) {
-            // duration is in seconds in StagedAttachment; thumbnail extractor
-            // wants ms. Default to 1s if duration is somehow missing.
-            const durationMs = Math.max(1000, (att.duration ?? 1) * 1000);
-            try {
-              const frames = await extractFiveFrames(att.localPath, durationMs);
-              for (const frame of frames) {
-                try {
-                  const result = await uploadImage(frame.uri);
-                  imageUrls.push(result.url);
-                } catch (err) {
-                  console.warn("Video frame upload failed", err);
-                }
-              }
-            } catch (err) {
-              // Non-fatal — Gemini already saw the full video for emote
-              // assembly, so Eli still gets a rich emote even without
-              // visual frames. He just doesn't see the stills.
-              console.warn("Video thumbnail extraction failed:", err);
-            }
+      // ── Upload phase — runs ONCE per send. Results are captured below and
+      // reused across retries so the recovery popup's Resubmit doesn't re-
+      // upload images that already landed (the previous behavior made
+      // Resubmit slow + brittle on attachment-heavy sends: an 8-image retry
+      // would silently re-upload all 8 before re-attempting Kindroid).
+      //
+      // Video attachments contribute too: we extract 5 equidistant frames
+      // from each clip and upload them as additional image_urls so Eli
+      // gets a visual sequence representing the video alongside the
+      // Gemini-built emote that describes the motion + audio.
+      set({ sendStartedAt: Date.now() });
+      let imageUrls: string[] | undefined;
+      const imageAtts = attachments.filter((a) => a.kind === "image");
+      const videoAtts = attachments.filter((a) => a.kind === "video");
+      if (
+        (imageAtts.length > 0 || videoAtts.length > 0) &&
+        isImageServerConfigured()
+      ) {
+        imageUrls = [];
+        for (const att of imageAtts) {
+          try {
+            const result = await uploadImage(att.localPath);
+            imageUrls.push(result.url);
+          } catch (err) {
+            // Non-fatal — Eli just won't see that image
+            console.warn("Image server upload failed", err);
           }
         }
+        for (const att of videoAtts) {
+          // duration is in seconds in StagedAttachment; thumbnail extractor
+          // wants ms. Default to 1s if duration is somehow missing.
+          const durationMs = Math.max(1000, (att.duration ?? 1) * 1000);
+          try {
+            const frames = await extractFiveFrames(att.localPath, durationMs);
+            for (const frame of frames) {
+              try {
+                const result = await uploadImage(frame.uri);
+                imageUrls.push(result.url);
+              } catch (err) {
+                console.warn("Video frame upload failed", err);
+              }
+            }
+          } catch (err) {
+            // Non-fatal — Gemini already saw the full video for emote
+            // assembly, so Eli still gets a rich emote even without
+            // visual frames. He just doesn't see the stills.
+            console.warn("Video thumbnail extraction failed:", err);
+          }
+        }
+      }
 
-        // Drop the timeout entirely for video sends. Even 180s wasn't
-        // always enough — Kindroid genuinely can take 3-5+ min to process
-        // a video-rich message, and a false-timeout surfaces as a
-        // recovery popup that drives the user into a Resubmit and a
-        // double-send. Tim has the ⏹ Abort button if he wants to give
-        // up manually, and the chatStore watchdog (at 6 min) is the
-        // final safety net. timeoutMs=0 is the kindroid service's
-        // "no timeout" sentinel.
-        const hasVideoAttached = attachments.some((a) => a.kind === "video");
+      // Kindroid send timeout scales with payload weight. Field data shows
+      // a 90s wall fits 0–3 attachments comfortably but starts catching
+      // legitimate work around 8+ images (Kindroid processes the image_urls
+      // one-by-one before generating the reply). Video sends genuinely take
+      // 3–5+ min and need no wall at all — the 6-min chatStore watchdog
+      // catches a true hang, and Tim has the ⏹ Abort button.
+      //
+      // Tiers:
+      //   0–3 attachments        → 90s   (default, unchanged)
+      //   4–7 attachments        → 180s  (gives Kindroid room without a
+      //                                   false-timeout-into-double-send)
+      //   8+ attachments or video → 0    (no wall; rely on watchdog + abort)
+      const hasVideoAttached = attachments.some((a) => a.kind === "video");
+      const attCount = attachments.length;
+      const kindroidTimeoutMs =
+        hasVideoAttached || attCount >= 8
+          ? 0
+          : attCount >= 4
+            ? 180_000
+            : undefined; // undefined → kindroid service default (90s)
+
+      // ── Kindroid step ── relay to Eli. Extracted into a closure so the
+      // recovery popup can re-run JUST this step on transient failure —
+      // without redoing the upload phase above. References itself as its
+      // own retry continuation.
+      const deliverToKindroid = async (): Promise<void> => {
+        set({ status: "sending", sendStartedAt: Date.now() });
         let eliRaw: string;
         try {
           eliRaw = await kindroidSend(finalRaw, {
             imageUrls,
-            timeoutMs: hasVideoAttached ? 0 : undefined,
+            timeoutMs: kindroidTimeoutMs,
           });
         } catch (err) {
           // User aborted while Kindroid was in flight — state already

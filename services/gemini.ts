@@ -186,14 +186,17 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
 
   const contents: Content[] = [...(input.history ?? []), { role: "user", parts }];
 
-  // 30s deadline — flash on this prompt typically returns in <3s. Anything
-  // past 30s is almost certainly a network hang (cellular dead zone, etc.)
-  // and we want to surface that as a "timeout" error so chatStore's
-  // transient-error path queues the message for retry instead of locking
-  // Drive Mode's overlay until the OS eventually severs the socket.
+  // 45s deadline. Flash typically returns in <3s, but `withRetry` stacks up
+  // to ~14s of exponential backoff inside this window across 3 attempts; a
+  // tighter wall (the previous 30s) didn't leave room for a full retry cycle
+  // when Gemini briefly returned 5xx or the cellular link was slow. Field
+  // sessions (2026-05-31) showed 3 emote timeouts at exactly 30s coinciding
+  // with Google's gemini-2.5-flash returning 500s — those retries deserved
+  // longer to land. 45s still surfaces a genuine hang quickly enough that
+  // Conversation Mode doesn't lock for a minute.
   const result = await withDeadline(
     withRetry(() => flash().generateContent({ contents })),
-    30_000,
+    45_000,
     "assembleEmote",
     input.signal
   );
@@ -650,16 +653,19 @@ export async function addAudioTags(
     (emoteContext ? `EMOTE CONTEXT: ${emoteContext}\n\n` : "") +
     `DIALOG: ${dialog}`;
 
-  // 15s — short prompt, near-instant Flash response in steady state. Tag
-  // injection failure isn't worth blocking TTS playback; on timeout, the
-  // audioStore catch will surface error and the user can replay later.
+  // 30s — short prompt, near-instant Flash response in steady state, but
+  // `withRetry`'s exponential backoff stacks up to ~14s on retries and the
+  // previous 15s wall didn't leave room for one full retry cycle when
+  // Gemini briefly returned 5xx. Tag injection failure isn't worth blocking
+  // TTS playback; on timeout, the audioStore catch surfaces error and the
+  // user can replay later.
   const result = await withDeadline(
     withRetry(() =>
       flash().generateContent({
         contents: [{ role: "user", parts: [{ text: prompt }] }],
       })
     ),
-    15_000,
+    30_000,
     "addAudioTags",
     signal
   );
