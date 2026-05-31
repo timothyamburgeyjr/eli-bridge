@@ -14,7 +14,6 @@ import { useMode } from "@/stores/modeStore";
 import { useChat } from "@/stores/chatStore";
 import { useAudio } from "@/stores/audioStore";
 import { useTimeline } from "@/stores/timelineStore";
-import { maybeRefreshQuickMessages, resetQuickAnchor } from "./quickGenerator";
 import { useQuick } from "@/stores/quickStore";
 
 /**
@@ -111,10 +110,9 @@ async function tick() {
 
     await updateLiveContext(loc, snapshot);
 
-    // Quick Messages: regen the suggestion batch if context shifted enough.
-    // The generator suppresses itself when not in Conversation Mode and
-    // respects its own cooldown, so this is safe to call every tick.
-    maybeRefreshQuickMessages(snapshot);
+    // Quick Messages used to be background-generated here. They are now
+    // on-demand per-category — the popup fires the Gemini call when Tim
+    // taps a category. See stores/quickStore.ts.
 
     runStuckStateWatchdog();
   } catch {
@@ -251,7 +249,6 @@ export function startSessionPoll() {
   // Drop any cached Quick Messages — last session's suggestions are stale
   // relative to a fresh location/weather/trip context.
   useQuick.getState().clear();
-  resetQuickAnchor();
   // Fire an immediate tick so driving is detectable as soon as the session
   // begins. Subsequent ticks run on the interval.
   tick();
@@ -268,5 +265,4 @@ export function stopSessionPoll() {
   lastLoggedPlace = null;
   resetMotionBuffer();
   useQuick.getState().clear();
-  resetQuickAnchor();
 }

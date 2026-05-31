@@ -1,96 +1,278 @@
 import { create } from "zustand";
-import type { QuickMessage } from "@/services/gemini";
+import type { SensorSnapshot } from "@/types";
+import {
+  generateQuickMessagesForCategory,
+  type QuickMessage,
+} from "@/services/gemini";
+import {
+  QUICK_CATEGORIES,
+  type QuickCategoryKey,
+} from "@/constants/quickCategories";
+import { snapshotToText } from "@/session/sensorStub";
+import { useChat } from "@/stores/chatStore";
+import type { Content } from "@google/generative-ai";
 
 /**
- * Quick Messages store. Holds the rolling batch of Gemini-generated
- * tap-to-send cards that appear in the Conversation Mode overlay. The
- * generator (session/quickGenerator.ts) is the only writer; the overlay UI
- * is the only reader. Decoupled so the generator can be triggered from the
- * session poller without the UI knowing how/when refreshes happen.
+ * Quick Messages store — per-category cache.
  *
- * Refresh policy lives in the generator, not the store — the store just
- * exposes set/clear and tracks the "fingerprint" of the context that
- * produced the current batch so the generator can decide whether the
- * current context warrants a regen.
+ * Generation is **on-demand**: Gemini is never called proactively. When Tim
+ * taps a category in the popup, the store checks whether the cached messages
+ * for that category are still fresh (per the invalidation policy below). If
+ * fresh, the popup renders them instantly. If stale or absent, the store
+ * fires a Gemini call and the UI shows a loading state until results land.
+ *
+ * Invalidation — ANY of these makes the cache stale and forces a re-fetch:
+ *   - More than CACHE_TTL_MS since the last successful fetch
+ *   - Moved more than CACHE_MOVE_THRESHOLD_M from the anchor of the cached
+ *     fetch (where Tim was when the messages were generated)
+ *   - Resolved place name changed
+ *   - Weather bucket changed (clear ↔ rain/snow/storm)
+ *
+ * Within a cache window taps are FREE — no Gemini call, instant render.
+ * Across a cache window the messages refresh to match the new context.
  */
 
-interface QuickState {
-  /** Current batch of suggestions. Empty when not yet generated or cleared. */
-  suggestions: QuickMessage[];
-  /** ms epoch when `suggestions` was set. */
-  generatedAt: number | null;
-  /** Hash of the inputs that produced `suggestions` — used by the generator
-   *  to skip regen when context is effectively unchanged. */
-  contextFingerprint: string | null;
-  /** True while a generation call is in flight. UI uses this to render a
-   *  subdued "regenerating…" state without blanking the cards. */
-  generating: boolean;
-  /** Last error message from a failed generation, surfaced in View All. */
-  lastError: string | null;
-  /**
-   * True while the main-chat Quick Messages popup is open. The generator
-   * suppresses itself unless either this flag OR Conversation Mode is
-   * active — saves Gemini calls when neither UI is showing the suggestions.
-   */
-  popupConsumer: boolean;
+const CACHE_TTL_MS = 5 * 60 * 1000;            // 5 minutes
+const CACHE_MOVE_THRESHOLD_M = 500;             // ~2-3 city blocks
+const DEFAULT_COUNT = 6;
 
-  setSuggestions: (
-    suggestions: QuickMessage[],
-    contextFingerprint: string
-  ) => void;
-  setGenerating: (generating: boolean) => void;
-  setError: (msg: string | null) => void;
-  setPopupConsumer: (open: boolean) => void;
-  clear: () => void;
+export type CategoryStatus = "idle" | "loading" | "ready" | "error";
 
-  /**
-   * Consume the suggestion at index `i` — remove it from the array. UI calls
-   * this after a successful sendMessage tap so the slot doesn't show the
-   * just-sent card on the next render. If the array empties below the
-   * display threshold the generator will refresh on its next poll.
-   */
-  consume: (index: number) => void;
+interface CategoryState {
+  status: CategoryStatus;
+  messages: QuickMessage[];
+  error: string | null;
+  /** ms epoch of the last successful fetch (null when status !== "ready"). */
+  fetchedAt: number | null;
+  /** Context anchor recorded at fetch time — drives invalidation. */
+  anchor: {
+    lat: number | null;
+    lon: number | null;
+    placeName: string | null;
+    weatherBucket: string;
+  } | null;
 }
 
-export const useQuick = create<QuickState>((set) => ({
-  suggestions: [],
-  generatedAt: null,
-  contextFingerprint: null,
-  generating: false,
-  lastError: null,
-  popupConsumer: false,
+const initialCategoryState = (): CategoryState => ({
+  status: "idle",
+  messages: [],
+  error: null,
+  fetchedAt: null,
+  anchor: null,
+});
 
-  setSuggestions: (suggestions, contextFingerprint) =>
-    set({
-      suggestions,
-      generatedAt: Date.now(),
-      contextFingerprint,
-      generating: false,
-      lastError: null,
-    }),
+interface QuickState {
+  /** Per-category cache. Always has all six keys, even before first fetch. */
+  byCategory: Record<QuickCategoryKey, CategoryState>;
 
-  setGenerating: (generating) => set({ generating }),
+  /**
+   * Fetch messages for a category. Returns immediately if cache is fresh;
+   * otherwise fires the Gemini call and updates state as it progresses.
+   * Safe to call concurrently — if already loading, the second call no-ops.
+   */
+  fetchCategory: (
+    categoryKey: QuickCategoryKey,
+    snapshot: SensorSnapshot
+  ) => Promise<void>;
 
-  setError: (msg) => set({ lastError: msg, generating: false }),
+  /**
+   * Force a refresh of one category, ignoring the cache. Wired to the
+   * pull-to-refresh / explicit refresh affordance in the Detail popup
+   * (future — not in MVP).
+   */
+  refreshCategory: (
+    categoryKey: QuickCategoryKey,
+    snapshot: SensorSnapshot
+  ) => Promise<void>;
 
-  setPopupConsumer: (open) => set({ popupConsumer: open }),
+  /**
+   * Remove the picked message from the cache so the same view doesn't keep
+   * showing what Tim just sent. The remaining messages stay valid until the
+   * cache invalidates.
+   */
+  consume: (categoryKey: QuickCategoryKey, index: number) => void;
 
-  clear: () =>
-    set({
-      suggestions: [],
-      generatedAt: null,
-      contextFingerprint: null,
-      generating: false,
-      lastError: null,
-      // popupConsumer intentionally NOT cleared — if the popup is open across
-      // a session boundary it should keep generating into the fresh batch.
-    }),
+  /** Wipe everything (called on session start/end). */
+  clear: () => void;
+}
 
-  consume: (index) =>
+function emptyByCategory(): Record<QuickCategoryKey, CategoryState> {
+  const out = {} as Record<QuickCategoryKey, CategoryState>;
+  for (const cat of QUICK_CATEGORIES) {
+    out[cat.key] = initialCategoryState();
+  }
+  return out;
+}
+
+export const useQuick = create<QuickState>((set, get) => ({
+  byCategory: emptyByCategory(),
+
+  fetchCategory: async (categoryKey, snapshot) => {
+    const state = get().byCategory[categoryKey];
+    // Don't double-fire while a request is in flight for this category.
+    if (state.status === "loading") return;
+    // Cache hit + still fresh → no work needed, popup renders cached.
+    if (state.status === "ready" && isCacheFresh(state, snapshot)) return;
+
+    await runFetch(set, categoryKey, snapshot);
+  },
+
+  refreshCategory: async (categoryKey, snapshot) => {
+    if (get().byCategory[categoryKey].status === "loading") return;
+    await runFetch(set, categoryKey, snapshot);
+  },
+
+  consume: (categoryKey, index) =>
     set((s) => {
-      if (index < 0 || index >= s.suggestions.length) return {};
-      const next = [...s.suggestions];
+      const cur = s.byCategory[categoryKey];
+      if (!cur || index < 0 || index >= cur.messages.length) return {};
+      const next = [...cur.messages];
       next.splice(index, 1);
-      return { suggestions: next };
+      return {
+        byCategory: {
+          ...s.byCategory,
+          [categoryKey]: { ...cur, messages: next },
+        },
+      };
     }),
+
+  clear: () => set({ byCategory: emptyByCategory() }),
 }));
+
+// ── internals ───────────────────────────────────────────────────
+
+async function runFetch(
+  set: (
+    partial:
+      | QuickState
+      | Partial<QuickState>
+      | ((state: QuickState) => QuickState | Partial<QuickState>)
+  ) => void,
+  categoryKey: QuickCategoryKey,
+  snapshot: SensorSnapshot
+): Promise<void> {
+  // Mark loading.
+  set((s) => ({
+    byCategory: {
+      ...s.byCategory,
+      [categoryKey]: {
+        ...s.byCategory[categoryKey],
+        status: "loading",
+        error: null,
+      },
+    },
+  }));
+
+  try {
+    const snapshotText = snapshotToText(snapshot);
+    const history = buildHistorySnippet();
+    const messages = await generateQuickMessagesForCategory({
+      sensorSnapshot: snapshotText,
+      categoryKey,
+      history,
+      count: DEFAULT_COUNT,
+    });
+    set((s) => ({
+      byCategory: {
+        ...s.byCategory,
+        [categoryKey]: {
+          status: "ready",
+          messages,
+          error: null,
+          fetchedAt: Date.now(),
+          anchor: anchorFromSnapshot(snapshot),
+        },
+      },
+    }));
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[quick] fetch ${categoryKey} failed:`, msg);
+    set((s) => ({
+      byCategory: {
+        ...s.byCategory,
+        [categoryKey]: {
+          ...s.byCategory[categoryKey],
+          status: "error",
+          error: msg,
+        },
+      },
+    }));
+  }
+}
+
+function isCacheFresh(state: CategoryState, snapshot: SensorSnapshot): boolean {
+  if (!state.fetchedAt || !state.anchor) return false;
+  // TTL
+  if (Date.now() - state.fetchedAt > CACHE_TTL_MS) return false;
+  // Place name change
+  const placeName = snapshot.location?.placeName ?? null;
+  if (placeName !== state.anchor.placeName) return false;
+  // Weather bucket change
+  if (weatherBucket(snapshot.weather?.conditions) !== state.anchor.weatherBucket) {
+    return false;
+  }
+  // Distance moved
+  const loc = snapshot.location;
+  if (loc && state.anchor.lat != null && state.anchor.lon != null) {
+    const d = haversineMeters(
+      { lat: state.anchor.lat, lon: state.anchor.lon },
+      { lat: loc.latitude, lon: loc.longitude }
+    );
+    if (d > CACHE_MOVE_THRESHOLD_M) return false;
+  }
+  return true;
+}
+
+function anchorFromSnapshot(snapshot: SensorSnapshot): CategoryState["anchor"] {
+  return {
+    lat: snapshot.location?.latitude ?? null,
+    lon: snapshot.location?.longitude ?? null,
+    placeName: snapshot.location?.placeName ?? null,
+    weatherBucket: weatherBucket(snapshot.weather?.conditions),
+  };
+}
+
+function weatherBucket(conditions?: string): string {
+  if (!conditions) return "unknown";
+  const c = conditions.toLowerCase();
+  if (c.includes("thunder") || c.includes("storm")) return "storm";
+  if (c.includes("snow") || c.includes("sleet") || c.includes("ice")) return "snow";
+  if (c.includes("rain") || c.includes("drizzle") || c.includes("shower")) return "rain";
+  if (c.includes("fog") || c.includes("mist") || c.includes("haze")) return "fog";
+  if (c.includes("cloud")) return "cloud";
+  if (c.includes("clear") || c.includes("sun")) return "clear";
+  return "other";
+}
+
+function haversineMeters(
+  a: { lat: number; lon: number },
+  b: { lat: number; lon: number }
+): number {
+  const R = 6_371_000;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(b.lat - a.lat);
+  const dLon = toRad(b.lon - a.lon);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLon / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+/**
+ * Build a compact history snippet so Gemini doesn't suggest topics Tim or
+ * Eli just covered. Last 6 turns is enough.
+ */
+function buildHistorySnippet(): Content[] {
+  const messages = useChat.getState().messages;
+  const recent = messages.slice(-6);
+  return recent
+    .filter((m) => m.from === "tim" || m.from === "eli")
+    .map((m) => ({
+      role: m.from === "tim" ? "user" : ("model" as const),
+      parts: [
+        {
+          text: m.raw ?? (m.emote ? `_(*${m.emote}*)_ ${m.dialog}` : m.dialog),
+        },
+      ],
+    }));
+}

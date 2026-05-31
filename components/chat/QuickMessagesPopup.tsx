@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Modal,
   View,
@@ -12,55 +12,73 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { C } from "@/constants/theme";
 import { useQuick } from "@/stores/quickStore";
 import { useChat } from "@/stores/chatStore";
+import { gatherSensorSnapshot } from "@/session/liveSensors";
+import {
+  QUICK_CATEGORIES,
+  getCategoryMeta,
+  type QuickCategoryKey,
+} from "@/constants/quickCategories";
+import type { SensorSnapshot } from "@/types";
+
+/**
+ * Quick Messages popup — single-modal X-Ray-style flow.
+ *
+ *   Categories view  → tap a category card
+ *   Detail view      → 4–7 Gemini-generated messages for that category
+ *                       (tap a message to send + close popup)
+ *
+ * One Modal, internal navigation. The back arrow returns from Detail to
+ * Categories; the close X dismisses the whole popup. The snapshot used for
+ * "Relevant right now in {place}" + Gemini grounding is gathered once when
+ * the popup opens, so the place name in the Detail header matches what
+ * Gemini is generating against.
+ *
+ * Same component is mounted from two entry points:
+ *   - More menu in main chat (live mode)
+ *   - "Open Quick Messages" button in the Conversation Mode overlay
+ */
 
 interface Props {
   visible: boolean;
   onClose: () => void;
 }
 
-/**
- * Main-chat Quick Messages popup. Opened from the InputBar's More menu
- * ("🗨 Quick Messages"). Shows the current batch of Gemini-generated
- * suggestions as a vertical scrollable list with the FULL body text
- * visible on each card (matching the mockup) — different from the
- * Conversation Mode panel which uses short labels for tighter cards.
- *
- * Tap behavior: card → consume + send + close popup. Tim sees the reply
- * land in the chat behind him.
- *
- * The popup sets quickStore.popupConsumer while open so the session
- * poller knows to keep generating fresh batches even when Conversation
- * Mode isn't active.
- */
 export function QuickMessagesPopup({ visible, onClose }: Props) {
-  const suggestions = useQuick((s) => s.suggestions);
-  const generating = useQuick((s) => s.generating);
-  const lastError = useQuick((s) => s.lastError);
-  const consume = useQuick((s) => s.consume);
-  const setPopupConsumer = useQuick((s) => s.setPopupConsumer);
-  const sendMessage = useChat((s) => s.sendMessage);
-  const chatStatus = useChat((s) => s.status);
+  const [selectedCategory, setSelectedCategory] = useState<QuickCategoryKey | null>(null);
+  const [snapshot, setSnapshot] = useState<SensorSnapshot | null>(null);
+  const [snapshotLoading, setSnapshotLoading] = useState(false);
 
-  // Register the popup as a generation consumer while open. Without this,
-  // the generator would suppress (no Conversation Mode = no point) and the
-  // popup could open to an empty state with no auto-refill.
+  const fetchCategory = useQuick((s) => s.fetchCategory);
+
+  // Gather the sensor snapshot ONCE when the popup opens. This snapshot
+  // feeds both the Detail header ("Relevant right now in {place}") and the
+  // Gemini call when the user taps a category, so they stay aligned.
   useEffect(() => {
-    setPopupConsumer(visible);
-    return () => setPopupConsumer(false);
-  }, [visible, setPopupConsumer]);
+    if (!visible) {
+      setSelectedCategory(null);
+      setSnapshot(null);
+      return;
+    }
+    setSnapshotLoading(true);
+    (async () => {
+      try {
+        const s = await gatherSensorSnapshot();
+        setSnapshot(s);
+      } catch (err) {
+        console.warn("[quickPopup] snapshot gather failed:", err);
+        setSnapshot(null);
+      } finally {
+        setSnapshotLoading(false);
+      }
+    })();
+  }, [visible]);
 
-  const handleTap = async (idx: number) => {
-    if (chatStatus === "assembling" || chatStatus === "sending") return;
-    const item = useQuick.getState().suggestions[idx];
-    if (!item) return;
-    consume(idx);
-    // Close BEFORE awaiting send so Tim sees his message land in the
-    // chat with no popup occluding it.
-    onClose();
-    try {
-      await sendMessage(item.body);
-    } catch (err) {
-      console.warn("[quickPopup] tap-send failed:", err);
+  const handleCategoryTap = (key: QuickCategoryKey) => {
+    setSelectedCategory(key);
+    if (snapshot) {
+      // Fire and forget — the Detail view subscribes to the store and renders
+      // loading/error/ready off the per-category status.
+      void fetchCategory(key, snapshot);
     }
   };
 
@@ -68,172 +86,376 @@ export function QuickMessagesPopup({ visible, onClose }: Props) {
     <Modal
       visible={visible}
       transparent
-      animationType="fade"
-      onRequestClose={onClose}
+      animationType="slide"
+      onRequestClose={() => {
+        if (selectedCategory !== null) setSelectedCategory(null);
+        else onClose();
+      }}
     >
-      <Pressable style={styles.backdrop} onPress={onClose} />
-      <SafeAreaView style={styles.sheetWrap} edges={["bottom"]} pointerEvents="box-none">
+      <View style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={onClose} />
         <View style={styles.sheet}>
-          <View style={styles.header}>
-            <View style={styles.headlineBlock}>
-              <View style={styles.headerIconWrap}>
-                <Text style={styles.headerIcon}>💬</Text>
-              </View>
-              <View>
-                <Text style={styles.title}>Quick Messages</Text>
-                <Text style={styles.sub}>Relevant right now</Text>
-              </View>
-            </View>
-            <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
-              <Text style={styles.closeIcon}>×</Text>
-            </Pressable>
-          </View>
-
-          {suggestions.length === 0 ? (
-            <View style={styles.emptyState}>
-              {generating ? (
-                <>
-                  <ActivityIndicator size="small" color={C.accent} />
-                  <Text style={styles.emptyText}>Generating suggestions…</Text>
-                </>
-              ) : lastError ? (
-                <Text style={[styles.emptyText, { color: C.red }]} numberOfLines={2}>
-                  ⚠ {lastError}
-                </Text>
-              ) : (
-                <Text style={styles.emptyText}>
-                  Suggestions will appear here as the trip evolves.
-                </Text>
-              )}
-            </View>
-          ) : (
-            <ScrollView style={{ maxHeight: "100%" }} contentContainerStyle={{ paddingBottom: 8 }}>
-              {suggestions.map((item, i) => (
-                <Pressable
-                  key={`${i}-${item.label}`}
-                  onPress={() => handleTap(i)}
-                  style={({ pressed }) => [
-                    styles.card,
-                    pressed && { opacity: 0.7 },
-                  ]}
-                  disabled={chatStatus === "assembling" || chatStatus === "sending"}
-                >
-                  <View style={styles.cardIconWrap}>
-                    <Text style={styles.cardIcon}>{item.icon}</Text>
-                  </View>
-                  <Text style={styles.cardBody} numberOfLines={3}>
-                    {/* Strip a leading *…* emote for display — the body
-                        gets sent verbatim including the emote markers,
-                        but the popup card preview reads cleaner without
-                        the action prefix. */}
-                    {stripLeadingEmote(item.body)}
-                  </Text>
-                  <Text style={styles.cardChevron}>›</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-          )}
+          <SafeAreaView edges={["bottom"]} style={{ flex: 1 }}>
+            <View style={styles.grabber} />
+            {selectedCategory === null ? (
+              <CategoriesView
+                snapshotLoading={snapshotLoading}
+                onCategoryTap={handleCategoryTap}
+                onClose={onClose}
+              />
+            ) : (
+              <DetailView
+                categoryKey={selectedCategory}
+                snapshot={snapshot}
+                onBack={() => setSelectedCategory(null)}
+                onClose={onClose}
+              />
+            )}
+          </SafeAreaView>
         </View>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }
 
-function stripLeadingEmote(body: string): string {
-  // Drop a single leading *…* segment if present, then trim.
-  return body.replace(/^\s*\*[^*]*\*\s*/, "").trim() || body;
+// ── Categories view ───────────────────────────────────────────────
+
+function CategoriesView({
+  snapshotLoading,
+  onCategoryTap,
+  onClose,
+}: {
+  snapshotLoading: boolean;
+  onCategoryTap: (key: QuickCategoryKey) => void;
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <View style={styles.header}>
+        <View style={styles.headerIcon}>
+          <Text style={{ fontSize: 18 }}>💬</Text>
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Quick Message Categories</Text>
+          <Text style={styles.subtitle}>Choose what kind of message to send</Text>
+        </View>
+        <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
+          <Text style={{ color: C.muted, fontSize: 20 }}>×</Text>
+        </Pressable>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.list}>
+        {QUICK_CATEGORIES.map((cat) => (
+          <Pressable
+            key={cat.key}
+            onPress={() => onCategoryTap(cat.key)}
+            disabled={snapshotLoading}
+            style={({ pressed }) => [
+              styles.categoryRow,
+              pressed && { opacity: 0.6 },
+              snapshotLoading && { opacity: 0.5 },
+            ]}
+          >
+            <View style={styles.categoryIcon}>
+              <Text style={{ fontSize: 24 }}>{cat.icon}</Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.categoryTitle}>{cat.title}</Text>
+              <Text style={styles.categoryDescription}>{cat.description}</Text>
+            </View>
+            <Text style={styles.chevron}>›</Text>
+          </Pressable>
+        ))}
+        {snapshotLoading ? (
+          <View style={styles.snapshotLoading}>
+            <ActivityIndicator size="small" color={C.accent} />
+            <Text style={styles.snapshotLoadingText}>Reading your moment…</Text>
+          </View>
+        ) : null}
+      </ScrollView>
+    </>
+  );
 }
+
+// ── Detail view ───────────────────────────────────────────────────
+
+function DetailView({
+  categoryKey,
+  snapshot,
+  onBack,
+  onClose,
+}: {
+  categoryKey: QuickCategoryKey;
+  snapshot: SensorSnapshot | null;
+  onBack: () => void;
+  onClose: () => void;
+}) {
+  const meta = getCategoryMeta(categoryKey);
+  const state = useQuick((s) => s.byCategory[categoryKey]);
+  const consume = useQuick((s) => s.consume);
+  const fetchCategory = useQuick((s) => s.fetchCategory);
+  const sendMessage = useChat((s) => s.sendMessage);
+  const chatStatus = useChat((s) => s.status);
+
+  const placeName = snapshot?.location?.placeName ?? null;
+  const contextLine = placeName
+    ? `Relevant right now in ${placeName}`
+    : "Relevant right now";
+
+  const handleSend = async (idx: number) => {
+    if (chatStatus === "assembling" || chatStatus === "sending") return;
+    const item = state.messages[idx];
+    if (!item) return;
+    consume(categoryKey, idx);
+    onClose();
+    try {
+      await sendMessage(item.body);
+    } catch (err) {
+      console.warn("[quickPopup] send failed:", err);
+    }
+  };
+
+  const handleRetry = () => {
+    if (snapshot) void fetchCategory(categoryKey, snapshot);
+  };
+
+  return (
+    <>
+      <View style={styles.header}>
+        <Pressable onPress={onBack} hitSlop={12} style={styles.backBtn}>
+          <Text style={{ color: C.accent, fontSize: 20, fontWeight: "700" }}>‹</Text>
+        </Pressable>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>{meta.title}</Text>
+          <Text style={styles.subtitle}>{contextLine}</Text>
+        </View>
+        <Pressable onPress={onClose} hitSlop={12} style={styles.closeBtn}>
+          <Text style={{ color: C.muted, fontSize: 20 }}>×</Text>
+        </Pressable>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.list}>
+        {state.status === "loading" || state.status === "idle" ? (
+          <View style={styles.fullStateBlock}>
+            <ActivityIndicator size="large" color={C.accent} />
+            <Text style={styles.fullStateText}>
+              Asking Gemini for fresh {meta.title.toLowerCase()} messages…
+            </Text>
+          </View>
+        ) : state.status === "error" ? (
+          <View style={styles.fullStateBlock}>
+            <Text style={[styles.fullStateText, { color: C.red }]}>
+              ⚠ {state.error ?? "Generation failed."}
+            </Text>
+            <Pressable onPress={handleRetry} style={styles.retryBtn}>
+              <Text style={styles.retryBtnText}>Try again</Text>
+            </Pressable>
+          </View>
+        ) : state.messages.length === 0 ? (
+          <View style={styles.fullStateBlock}>
+            <Text style={styles.fullStateText}>
+              No messages came back. Tap to retry.
+            </Text>
+            <Pressable onPress={handleRetry} style={styles.retryBtn}>
+              <Text style={styles.retryBtnText}>Retry</Text>
+            </Pressable>
+          </View>
+        ) : (
+          state.messages.map((msg, idx) => (
+            <Pressable
+              key={`${categoryKey}-${idx}`}
+              onPress={() => handleSend(idx)}
+              disabled={chatStatus === "assembling" || chatStatus === "sending"}
+              style={({ pressed }) => [
+                styles.messageRow,
+                pressed && { opacity: 0.6 },
+                (chatStatus === "assembling" || chatStatus === "sending") && {
+                  opacity: 0.5,
+                },
+              ]}
+            >
+              <View style={styles.messageIcon}>
+                <Text style={{ fontSize: 22 }}>{msg.icon}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.messageTitle}>{msg.label}</Text>
+                <Text style={styles.messageBody} numberOfLines={4}>
+                  {msg.body}
+                </Text>
+              </View>
+              <Text style={styles.sendChevron}>↗</Text>
+            </Pressable>
+          ))
+        )}
+      </ScrollView>
+    </>
+  );
+}
+
+// ── styles ────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0,0,0,0.55)",
-  },
-  sheetWrap: {
     flex: 1,
-    justifyContent: "center",
-    paddingHorizontal: 14,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "flex-end",
   },
   sheet: {
-    backgroundColor: C.raised,
-    borderRadius: 18,
-    borderWidth: 1,
-    borderColor: C.accent + "44",
-    paddingHorizontal: 14,
-    paddingTop: 14,
-    paddingBottom: 14,
-    maxHeight: "78%",
-    shadowColor: "#000",
-    shadowOpacity: 0.5,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 14,
+    backgroundColor: C.surface,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "88%",
+    minHeight: "60%",
+    borderTopWidth: 1,
+    borderColor: C.border,
   },
+  grabber: {
+    alignSelf: "center",
+    width: 44,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: C.muted + "55",
+    marginTop: 8,
+    marginBottom: 4,
+  },
+
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
   },
-  headlineBlock: { flexDirection: "row", alignItems: "center", gap: 12 },
-  headerIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    backgroundColor: C.accent + "1A",
+  headerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.raised,
+    borderWidth: 1,
+    borderColor: C.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: C.raised,
     borderWidth: 1,
     borderColor: C.accent + "55",
     alignItems: "center",
     justifyContent: "center",
   },
-  headerIcon: { fontSize: 18 },
-  title: { color: C.text, fontSize: 16, fontWeight: "700" },
-  sub: { color: C.accent, fontSize: 12, fontWeight: "600", marginTop: 1 },
   closeBtn: {
     width: 32,
     height: 32,
     borderRadius: 16,
+    backgroundColor: C.raised,
     borderWidth: 1,
     borderColor: C.border,
     alignItems: "center",
     justifyContent: "center",
   },
-  closeIcon: { color: C.muted, fontSize: 18, lineHeight: 18 },
-  emptyState: {
-    paddingVertical: 40,
-    alignItems: "center",
-    gap: 12,
-  },
-  emptyText: { color: C.muted, fontSize: 12, textAlign: "center" },
-  card: {
+  title: { fontSize: 17, fontWeight: "700", color: C.text },
+  subtitle: { fontSize: 12, color: C.accent, marginTop: 2 },
+
+  list: { padding: 16, gap: 10 },
+
+  // Category row
+  categoryRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 10,
-    marginBottom: 8,
-    borderRadius: 12,
+    gap: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: C.border,
-    backgroundColor: C.surface,
+    backgroundColor: C.raised,
   },
-  cardIconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: C.accent + "14",
+  categoryIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: C.surface,
     borderWidth: 1,
-    borderColor: C.accent + "44",
+    borderColor: C.accent + "33",
     alignItems: "center",
     justifyContent: "center",
   },
-  cardIcon: { fontSize: 22 },
-  cardBody: {
-    flex: 1,
-    color: C.text,
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: "500",
+  categoryTitle: { fontSize: 15, fontWeight: "700", color: C.text },
+  categoryDescription: {
+    fontSize: 12,
+    color: C.textDim,
+    marginTop: 4,
+    lineHeight: 16,
   },
-  cardChevron: { color: C.accent, fontSize: 18 },
+  chevron: { fontSize: 22, color: C.accent, fontWeight: "600" },
+
+  // Detail message row
+  messageRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+    borderRadius: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: C.border,
+  },
+  messageIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: C.surface,
+    borderWidth: 1,
+    borderColor: C.accent + "33",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  messageTitle: { fontSize: 14, fontWeight: "700", color: C.text },
+  messageBody: {
+    fontSize: 12,
+    color: C.textDim,
+    marginTop: 4,
+    lineHeight: 17,
+    fontStyle: "italic",
+  },
+  sendChevron: { fontSize: 18, color: C.accent, marginTop: 8 },
+
+  // Loading / error blocks
+  fullStateBlock: {
+    paddingVertical: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 14,
+  },
+  fullStateText: {
+    color: C.textDim,
+    fontSize: 13,
+    textAlign: "center",
+    paddingHorizontal: 24,
+    lineHeight: 18,
+  },
+  retryBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 18,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: C.accent + "66",
+    backgroundColor: C.accent + "1A",
+  },
+  retryBtnText: { color: C.accent, fontSize: 13, fontWeight: "700" },
+
+  snapshotLoading: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingVertical: 14,
+  },
+  snapshotLoadingText: { color: C.muted, fontSize: 12 },
 });

@@ -27,7 +27,7 @@ import {
   VOICE_RECORDING_PRESET,
 } from "@/services/audio";
 import { abortPipeline } from "@/session/abortPipeline";
-import { QuickMessages } from "./QuickMessages";
+import { QuickMessagesPopup } from "@/components/chat/QuickMessagesPopup";
 
 const KEEP_AWAKE_TAG = "eli-bridge-conversation";
 
@@ -58,6 +58,7 @@ export function ConversationOverlay() {
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [quickPopupOpen, setQuickPopupOpen] = useState(false);
 
   const recorder = useAudioRecorder(VOICE_RECORDING_PRESET);
   const recorderRef = useRef(recorder);
@@ -357,11 +358,41 @@ export function ConversationOverlay() {
           {error ? <Text style={styles.error}>⚠ {error}</Text> : null}
         </Pressable>
 
-        {/* ── Quick Messages — sits below the tap zone, not a tap target ── */}
+        {/* ── Quick Messages — single button, opens the X-Ray popup. ── */}
         <View style={styles.quickContainer}>
-          <QuickMessages />
+          <View style={styles.quickHeader}>
+            <Text style={styles.quickHeaderIcon}>✦</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.quickHeaderTitle}>Quick Messages</Text>
+              <Text style={styles.quickHeaderSubtitle}>
+                Send Eli an instant message
+              </Text>
+            </View>
+          </View>
+          <Pressable
+            onPress={() => setQuickPopupOpen(true)}
+            style={({ pressed }) => [
+              styles.quickButton,
+              pressed && { opacity: 0.6 },
+            ]}
+          >
+            <Text style={styles.quickButtonIcon}>💬</Text>
+            <Text style={styles.quickButtonLabel}>Open Quick Messages</Text>
+            <Text style={styles.quickButtonChevron}>›</Text>
+          </Pressable>
+          <View style={styles.quickFooter}>
+            <Text style={styles.quickFooterIcon}>ⓘ</Text>
+            <Text style={styles.quickFooterText}>
+              Browse categories of messages and send one to Eli instantly.
+            </Text>
+          </View>
         </View>
       </SafeAreaView>
+
+      <QuickMessagesPopup
+        visible={quickPopupOpen}
+        onClose={() => setQuickPopupOpen(false)}
+      />
     </Modal>
   );
 }
@@ -521,5 +552,52 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: C.border,
     backgroundColor: C.bg,
+    paddingHorizontal: 20,
+    paddingTop: 14,
+    paddingBottom: 18,
+    gap: 10,
+  },
+  quickHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  quickHeaderIcon: { color: C.accent, fontSize: 20 },
+  quickHeaderTitle: { color: C.text, fontSize: 17, fontWeight: "700" },
+  quickHeaderSubtitle: { color: C.textDim, fontSize: 12, marginTop: 2 },
+
+  quickButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: C.accent + "66",
+    backgroundColor: C.accent + "1A",
+  },
+  quickButtonIcon: { fontSize: 22 },
+  quickButtonLabel: {
+    flex: 1,
+    color: C.accent,
+    fontSize: 16,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  quickButtonChevron: { color: C.accent, fontSize: 22, fontWeight: "600" },
+
+  quickFooter: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    paddingTop: 4,
+  },
+  quickFooterIcon: { color: C.muted, fontSize: 12, marginTop: 1 },
+  quickFooterText: {
+    flex: 1,
+    color: C.textDim,
+    fontSize: 11,
+    lineHeight: 14,
   },
 });

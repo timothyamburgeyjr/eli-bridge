@@ -363,169 +363,105 @@ export async function researchPhotoSubject(
   return analyzeScene({ prompt, images: [image], signal });
 }
 
-// ── generateQuickMessages (flash) ────────────────────────────────
+// ── generateQuickMessagesForCategory (flash) ─────────────────────
 //
-// Quick Messages are Conversation-Mode-only suggestions Tim can tap to send
-// pre-written first-person messages to Eli without typing. Gemini Flash
-// generates 16 of them at a time based on the current sensor snapshot,
-// recent location trajectory, time of day, and Gemini's own knowledge of
-// the surrounding area (landmarks, history, regional culture).
+// Quick Messages are tap-to-send first-person messages Tim picks instead of
+// typing. The UI presents six MODE-BASED categories
+// (see constants/quickCategories.ts) — Location & Surroundings, Weather &
+// Atmosphere, Mood & Feeling, Time & Rhythm, Local Life & Senses, Local
+// History & Culture — and Gemini is asked for 4–7 messages at a time SCOPED
+// to whichever category Tim tapped. No background batches; generation
+// happens only on tap, with a short cache to absorb quick re-taps.
 //
-// Each suggestion holds:
-//   - `icon`:  single emoji shown on the card
-//   - `label`: short tap-target text (≤ 40 chars)
-//   - `body`:  the full first-person Tim message that gets sent on tap,
-//              including embedded `*emote*` markers. Tim's normal asterisk
-//              emotes flow through Gemini's send-time assembler as inline
-//              emotes; the assembler's leading ambient emote (from sensors)
-//              still gets prepended, so the final message reads as
-//              `_(*ambient*)_ *Tim's micro-emote* dialog`.
+// Each message holds:
+//   - `icon`:  single emoji shown on the row's circular dot
+//   - `label`: short row title (≤ 40 chars)
+//   - `body`:  the full sendable message — formatted as a single emote block
+//              `_(*TEXT*)_` with NO surrounding dialog. Tim tapping a row
+//              sends body verbatim through chatStore.sendMessage; the
+//              EmoteAssembler will add its own ambient context on top
+//              (`_(*ambient*)_ _(*Tim's chosen observation*)_`).
 
 export interface QuickMessage {
   icon: string;
   label: string;
   body: string;
-  /** Coarse category for variety analysis. Currently informational only —
-   *  Gemini emits it so we can avoid showing four "landmark" cards in a row. */
-  category: "landmark" | "weather" | "traffic" | "history" | "ambient" | "banter" | "other";
 }
 
-export interface GenerateQuickMessagesInput {
+export interface GenerateQuickMessagesForCategoryInput {
   /** Plain-text sensor snapshot — same shape as assembleEmote. */
   sensorSnapshot: string;
-  /** Optional running context: "headed west on I-44, 2h into the drive." */
-  tripContext?: string;
+  /** Which of the six mode-based categories to generate for. */
+  categoryKey: import("@/constants/quickCategories").QuickCategoryKey;
   /** Recent message history to avoid suggestions Tim or Eli just touched on. */
   history?: Content[];
-  /**
-   * Target batch size. Used for first-generation. On refresh (when
-   * `previousSuggestions` is supplied), Gemini is told to aim for this many
-   * but is allowed to return fewer if the moment is quiet — so suggestions
-   * don't pad out with stale filler. UI uses 16 (4 pages × 4).
-   */
+  /** Target count — 4–7. Defaults to 6. */
   count?: number;
-  /**
-   * If provided, this is a REFRESH. Gemini is told to review each prior
-   * suggestion, KEEP the ones still relevant (copying them verbatim), DROP
-   * the rest, and ADD new ones for topics that emerged since last gen. This
-   * is what prevents the batch from being thrown out and rebuilt every
-   * 90 seconds — relevant cards persist as long as they're still relevant.
-   */
-  previousSuggestions?: QuickMessage[];
   signal?: AbortSignal;
 }
 
-export async function generateQuickMessages(
-  input: GenerateQuickMessagesInput
+export async function generateQuickMessagesForCategory(
+  input: GenerateQuickMessagesForCategoryInput
 ): Promise<QuickMessage[]> {
-  const count = input.count ?? 16;
-  const isRefresh = (input.previousSuggestions?.length ?? 0) > 0;
-
-  const refreshGuidance = isRefresh
-    ? "REFRESH MODE — you are receiving a PREVIOUS LIST of Quick Messages " +
-      "Gemini generated for Tim earlier. Tim's context has shifted since " +
-      "then (new location, weather, time, or activity).\n\n" +
-      "Walk through each entry in PREVIOUS LIST and decide:\n" +
-      "  - STILL RELEVANT? Copy it into your output VERBATIM — same icon, " +
-      "label, body, category. Do NOT paraphrase.\n" +
-      "  - NO LONGER RELEVANT (passed the landmark, weather moved on, ETA " +
-      "is now stale, topic was already discussed)? Drop it.\n" +
-      "Then ADD new suggestions for topics that emerged from the current " +
-      "context — new landmarks visible, new weather, new region with its " +
-      "own history, etc. New entries should not duplicate what you kept.\n\n" +
-      `Aim for around ${count} total entries but DON'T pad with stale ideas ` +
-      "to hit the count. A quiet rural drive might only sustain 5-6 " +
-      "relevant suggestions; a downtown approach might justify 16. The " +
-      "right number is what's genuinely useful right now.\n\n"
-    : "FIRST GENERATION — no previous list. Generate a fresh batch from " +
-      `the current context. Aim for ${count} entries.\n\n`;
+  const { getCategoryMeta } = await import("@/constants/quickCategories");
+  const meta = getCategoryMeta(input.categoryKey);
+  const count = Math.max(4, Math.min(7, input.count ?? 6));
 
   const prompt =
-    "You are generating Quick Messages — pre-written first-person " +
-    "observations Tim can tap to send to Eli, his AI companion, without " +
-    "typing. Tim's hands or attention are otherwise occupied (driving, " +
-    "walking, etc.), so each card needs to feel like something Tim would " +
-    "naturally say in this exact moment.\n\n" +
-    refreshGuidance +
-    "SCALE-OF-OBSERVATION — match what Tim can actually SEE and DO right " +
-    "now. The activity field in the sensor snapshot drives this:\n" +
-    "  - activity = car (driving): horizon-scale observations. Highway " +
-    "signs, distant skylines, billboards, bridges crossing rivers, ETA, " +
-    "traffic flow, weather across the route, regional culture / history " +
-    "of the area you're passing through, songs on the radio. Tim can't " +
-    "stop to inspect anything — he glances and observes.\n" +
-    "  - activity = walking or running: storefront-scale, sidewalk-scale " +
-    "observations. Specific business names you can see from the sidewalk " +
-    "(\"Dark Star Books is right here\"), cobblestones, foot traffic, " +
-    "smells from a café, conversations from passing groups, the feel of " +
-    "the weather on skin, things you could WALK INTO and inspect. Slower " +
-    "and more deliberate than driving — Tim has time to look around.\n" +
-    "  - activity = still: ambient observations from where Tim is sitting " +
-    "or standing. The light in the room, sounds, who else is around, " +
-    "what's on screens or surfaces nearby. Less about movement, more " +
-    "about settling in.\n" +
-    "  - Unknown / mixed activity: lean toward the most-recent place-name " +
-    "context. If it's a walkable downtown, default to walking scale. If " +
-    "it's a highway corridor, default to driving scale.\n\n" +
-    "Topics across activities (pick varied ones per batch):\n" +
-    "- Landmarks / visible features at the appropriate scale\n" +
-    "- Weather (current, change, alert)\n" +
-    "- History or trivia about where Tim is — lean into this; your " +
-    "training has more depth than Tim does on most places, and a " +
-    "historical/cultural beat lands the same whether walking or driving\n" +
-    "- Ambient observations (sky, light, sound, smell, foot traffic)\n" +
-    "- Conversation starters (something to ask Eli)\n\n" +
-    "RULES:\n" +
-    "- First person, Tim's voice, present tense\n" +
-    "- Each `body` must include ONE inline `*action*` emote, then dialog. " +
-    "Example: `*I glance out at the bend in the river* The Mississippi " +
-    "looks wider than I remembered, Eli.`\n" +
-    "- `label` is the SHORT card text (max 40 chars). Sentence fragments — " +
-    "\"We're passing the Gateway Arch\" / \"It just started raining here\" / " +
-    "\"This is Mark Twain country\". Used in the compact Conversation Mode " +
-    "cards.\n" +
-    "- The `body` is what gets SENT and is also displayed in the main-chat " +
-    "popup. Write it as a complete, send-ready sentence (or two).\n" +
-    "- Pick ONE emoji per card that fits the topic\n" +
-    "- DO NOT repeat what's already in chat history\n" +
-    "- DO NOT include _(*…*)_ wrapper format; only single asterisks for the " +
-    "inline emote\n" +
-    "- DO NOT mention Tim by name in the body (he IS Tim)\n\n" +
-    "Respond as a single JSON object with key `suggestions` holding an array. " +
-    "Each entry: { icon, label, body, category }. category ∈ {landmark, " +
-    "weather, traffic, history, ambient, banter, other}. No preamble, no " +
-    "markdown fence, just the JSON object.\n\n" +
+    `You are generating Quick Messages for Tim's "${meta.title}" category — ` +
+    "tap-to-send first-person messages he picks instead of typing. He is " +
+    "tapping NOW for THIS specific category, so every message you generate " +
+    "must fit this category's focus and no other.\n\n" +
+    `[CATEGORY FOCUS — ${meta.title}]\n${meta.promptFocus}\n\n` +
+    "SCALE-OF-OBSERVATION — adapt to what Tim can actually see/do right now. " +
+    "The activity field in the sensor snapshot drives scale:\n" +
+    "  - activity = car: horizon-scale (skylines, distant features, the " +
+    "road, the route). Tim glances and observes; he can't inspect.\n" +
+    "  - activity = walking/running: sidewalk-scale (the storefront in front " +
+    "of him, the texture of this block, smells from a doorway).\n" +
+    "  - activity = still: ambient (the room, the view from here, settled).\n" +
+    "  - unknown/mixed: default to the place's character (walkable downtown " +
+    "→ walking; highway corridor → driving).\n\n" +
+    "STRICT FORMAT RULES — read carefully, this is enforced:\n" +
+    "- `body` is a SINGLE EMOTE BLOCK in the exact wrapper `_(*TEXT*)_`. " +
+    "Note the leading underscore, opening paren, asterisk; then the text; " +
+    "then asterisk, closing paren, trailing underscore. No other format is " +
+    "valid. No surrounding dialog before or after — body IS the emote block " +
+    "and nothing else.\n" +
+    "- Inside the wrapper, write Tim's first-person action+observation in " +
+    "present tense. Example for Location & Surroundings: " +
+    "`_(*I slow down and take in the old brick buildings on Main Street. " +
+    "Downtown Lynchburg has this stubborn small-town character.*)_`\n" +
+    "- `label` is the SHORT row title (max 40 chars), written as a NOUN " +
+    "PHRASE or SHORT GESTURE — what Tim is reaching for. Examples: " +
+    "\"Old town character\" / \"Light off the courthouse\" / \"Settled in for " +
+    "the morning\". NOT a topic-header — a thing-Tim-might-say.\n" +
+    "- `icon` is ONE emoji that visually fits this specific message (not " +
+    "the category's icon — vary it per-row so the list looks alive).\n" +
+    "- Generate exactly " + count + " messages.\n" +
+    "- DO NOT repeat topics from chat history.\n" +
+    "- DO NOT mention Tim by name (he IS Tim).\n" +
+    "- DO NOT mention Eli's name in body (it's understood).\n\n" +
+    "Respond as a single JSON object with key `suggestions` holding an " +
+    "array. Each entry: { icon, label, body }. No preamble, no markdown " +
+    "fence, just the JSON object.\n\n" +
     "[SENSOR SNAPSHOT]\n" +
-    input.sensorSnapshot +
-    (input.tripContext ? `\n\n[TRIP CONTEXT]\n${input.tripContext}` : "") +
-    (isRefresh
-      ? `\n\n[PREVIOUS LIST — review for relevance]\n${JSON.stringify(
-          input.previousSuggestions,
-          null,
-          2
-        )}`
-      : "");
+    input.sensorSnapshot;
 
   const contents: Content[] = [
     ...(input.history ?? []),
     { role: "user", parts: [{ text: prompt }] },
   ];
 
-  // 20s — generation of 16 short items on Flash is usually ~3-5s; 20s leaves
-  // room for cellular slowness without freezing the Conversation Mode UI.
-  //
-  // Uses neutralFlash() — a Flash instance without the Eli Bridge system
-  // instruction. The 9k-token emote-assembly prompt is dead weight here:
-  // Quick Messages have their own full instruction inline (above), and
-  // Gemini doesn't need to know Eli's persona or the emote conventions to
-  // generate a JSON list of tap-to-send cards. Skipping the system prompt
-  // cuts per-call input from ~11k tokens to ~2k tokens (~5x cheaper).
-  // Same precedent: condensePersonContext does the same thing for the same
-  // reason — pure summarization, no Eli context required.
+  // 20s — generation of 4–7 short items on Flash is usually ~3-5s; 20s
+  // leaves room for cellular slowness without freezing the popup. Uses
+  // neutralFlash() — Quick Messages have their own full instruction inline,
+  // so the Eli Bridge system prompt is dead weight here (same precedent as
+  // condensePersonContext).
   const result = await withDeadline(
     withRetry(() => neutralFlash().generateContent({ contents })),
     20_000,
-    "generateQuickMessages",
+    `generateQuickMessages:${input.categoryKey}`,
     input.signal
   );
   const raw = result.response.text().trim();
@@ -545,7 +481,7 @@ function parseQuickMessages(raw: string): QuickMessage[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonText);
-  } catch (err) {
+  } catch {
     throw new Error(
       `generateQuickMessages: invalid JSON. Raw: ${raw.slice(0, 200)}`
     );
@@ -568,11 +504,31 @@ function parseQuickMessages(raw: string): QuickMessage[] {
     valid.push({
       icon: e.icon,
       label: e.label.slice(0, 60),
-      body: e.body,
-      category: (e.category as QuickMessage["category"]) ?? "other",
+      body: normalizeEmoteBody(e.body),
     });
   }
   return valid;
+}
+
+/**
+ * Force the body into the strict `_(*TEXT*)_` shape. Gemini occasionally
+ * returns `(*…*)` (no underscores), `*(…)*`, or includes the wrapper twice;
+ * the chat renderer + Eli's downstream parsing expect the canonical form, so
+ * we coerce here rather than letting bad shapes leak into the store.
+ *
+ * Strategy: extract the inner text by stripping any combination of the
+ * known emote wrappers, then re-wrap in the canonical `_(*TEXT*)_`.
+ */
+function normalizeEmoteBody(body: string): string {
+  let text = body.trim();
+  // Strip leading/trailing underscores
+  text = text.replace(/^_+/, "").replace(/_+$/, "");
+  // Strip leading `(* ` and trailing ` *)`
+  text = text.replace(/^\(\*\s*/, "").replace(/\s*\*\)$/, "");
+  // Strip any stray opening/closing wrapper that survived (paranoid)
+  text = text.replace(/^_?\(\*\s*/, "").replace(/\s*\*\)_?$/, "");
+  text = text.trim();
+  return `_(*${text}*)_`;
 }
 
 // ── draftJournal (flash) ─────────────────────────────────────────
