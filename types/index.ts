@@ -299,6 +299,20 @@ export interface LocationData {
   timestamp: number;
   placeName?: string;
   placeType?: string;
+  /**
+   * Hierarchical address components from reverseGeocode — the PRESENT
+   * anchor uses this to walk up to the next-most-specific level if a
+   * specific business doesn't resolve (premise → locality → state →
+   * country → Earth). Optional because the home-geofence shortcut and
+   * the stub sensor don't populate it.
+   */
+  placeHierarchy?: {
+    premise?: string;
+    sublocality?: string;
+    locality?: string;
+    state?: string;
+    country?: string;
+  };
 }
 
 // ════════════════════════════════════════════════════════════════

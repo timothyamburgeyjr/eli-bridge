@@ -11,6 +11,8 @@ import {
   clearPersistedSession,
 } from "./sessionPersistence";
 import { resetPersonContextCache } from "@/people/personContext";
+import { useCompanions } from "@/session/CompanionTracker";
+import { useClarifications } from "@/stores/clarificationStore";
 import { useMode } from "@/stores/modeStore";
 import { useTimeline } from "@/stores/timelineStore";
 import type { ChatItem } from "@/components/chat/ChatStream";
@@ -155,6 +157,11 @@ export const useSession = create<SessionState>((set, get) => ({
     // Reset per-session caches. chatStore clearing is the caller's responsibility
     // (via chatStore.clear()) so session-start doesn't clobber existing chat.
     resetPersonContextCache();
+    // Companion tracker resets per session so a new trip starts with just
+    // Tim + Eli; clarification queue clears so stale popups from the prior
+    // session don't bleed over.
+    useCompanions.getState().reset();
+    useClarifications.getState().skipAll();
 
     // Fresh timeline per session — diagnostic history from the previous
     // session lives on disk only via the prior export (if any).

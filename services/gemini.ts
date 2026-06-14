@@ -78,24 +78,77 @@ export interface ParsedMessage {
   body: string;
   /** The raw Gemini output, trimmed. */
   raw: string;
+  /**
+   * Companion-state inference emitted by assembleEmote — high-confidence
+   * adds/removes get applied silently by the EmoteAssembler caller; the
+   * `ambiguous` list seeds the ClarificationQueue for Tim to confirm.
+   * Absent for non-emote-assembly paths (Eli's incoming replies, etc.).
+   */
+  companionDelta?: {
+    added: string[];
+    removed: string[];
+    ambiguous: { name: string; hint: string }[];
+  };
 }
 
 const EMOTE_RE = /^_\(\*\s*([\s\S]*?)\s*\*\)_\s*/;
+const COMPANION_DELTA_RE = /\n*\[COMPANION_DELTA\]\s*(\{[\s\S]*?\})\s*$/;
 
 /**
  * Parse a Bridge-format message into its leading emote + remaining body.
  * Works for both Gemini-composed outgoing messages and Eli's incoming replies —
  * both use the `_(*emote*)_ dialog` convention.
+ *
+ * If the raw text ends with a `[COMPANION_DELTA] { ... }` tail (only
+ * emitted by assembleEmote), the JSON is parsed off and the tail stripped
+ * from the body before returning. Malformed / missing tail → companionDelta
+ * is left undefined and the body is unchanged.
  */
 export function parseAssembledMessage(text: string): ParsedMessage {
-  const raw = text.trim();
+  let raw = text.trim();
+
+  // Pull the companion-delta tail off before the emote-body split so the
+  // tail JSON doesn't end up in the body.
+  let companionDelta: ParsedMessage["companionDelta"];
+  const deltaMatch = raw.match(COMPANION_DELTA_RE);
+  if (deltaMatch) {
+    try {
+      const parsed = JSON.parse(deltaMatch[1]) as {
+        added?: unknown;
+        removed?: unknown;
+        ambiguous?: unknown;
+      };
+      const added = Array.isArray(parsed.added)
+        ? parsed.added.filter((v): v is string => typeof v === "string")
+        : [];
+      const removed = Array.isArray(parsed.removed)
+        ? parsed.removed.filter((v): v is string => typeof v === "string")
+        : [];
+      const ambiguous = Array.isArray(parsed.ambiguous)
+        ? parsed.ambiguous
+            .filter(
+              (v): v is { name: string; hint: string } =>
+                !!v &&
+                typeof v === "object" &&
+                typeof (v as { name?: unknown }).name === "string" &&
+                typeof (v as { hint?: unknown }).hint === "string"
+            )
+            .map((v) => ({ name: v.name, hint: v.hint }))
+        : [];
+      companionDelta = { added, removed, ambiguous };
+    } catch {
+      // Malformed JSON tail — silently drop; emote layer still works.
+    }
+    raw = raw.slice(0, deltaMatch.index).trimEnd();
+  }
+
   const m = raw.match(EMOTE_RE);
   if (!m) {
-    return { leadingEmote: "", body: raw, raw };
+    return { leadingEmote: "", body: raw, raw, companionDelta };
   }
   const leadingEmote = m[1];
   const body = raw.slice(m[0].length).trim();
-  return { leadingEmote, body, raw };
+  return { leadingEmote, body, raw, companionDelta };
 }
 
 // ── assembleEmote ────────────────────────────────────────────────
@@ -114,6 +167,18 @@ export interface AssembleEmoteInput {
   videos?: { mimeType: string; data: string }[];
   /** Prior turns in this session in chronological order. */
   history?: Content[];
+  /**
+   * Current companion roster — drives the COMPANION_DELTA inference. The
+   * model returns who joined/left this turn relative to this list. Empty
+   * = just Tim and Eli. Roster names come from PeopleStore where possible.
+   */
+  currentCompanions?: string[];
+  /**
+   * Known names from the PeopleStore roster. Used so Gemini resolves
+   * "Henry" to "Hank" (or surfaces it as ambiguous) instead of inventing
+   * a new identity each turn. Empty/undefined → no roster guidance.
+   */
+  rosterNames?: string[];
   /** Abort signal — wired into the deadline race so a user abort wakes us
    *  immediately instead of waiting out the full 30s budget. */
   signal?: AbortSignal;
@@ -158,21 +223,56 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
   // addressed TO Tim ("I think so too, Tim. A lot."), which is Eli
   // hallucinated by Flash and mis-attributed as part of Tim's outgoing
   // message. Eli's replies come from Kindroid, never from Flash.
+  //
+  // The COMPANION_DELTA tail is the one explicit exception — it's a small
+  // structured suffix Flash appends AFTER the dialog, parsed by
+  // parseAssembledMessage and stripped before the message reaches Kindroid.
   const outputScope =
     "\n\n[OUTPUT SCOPE — STRICT]\n" +
     "Your response must consist EXCLUSIVELY of Tim's outgoing message: " +
     "the optional leading _(*ambient emote*)_ plus Tim's verbatim dialog " +
     "(transcribed from audio or taken from TIM'S INPUT), with optional " +
-    "inline tonal-shift emotes INSIDE Tim's speech. That's the entire output. " +
+    "inline tonal-shift emotes INSIDE Tim's speech. Then — ALWAYS — the " +
+    "[COMPANION_DELTA] tail described below. That's the entire output. " +
     "DO NOT generate Eli's response, Eli's emotes, any dialog addressed TO Tim, " +
     "or any continuation of the conversation. You are the bridge layer; Eli's " +
-    "replies are generated downstream by Kindroid, not by you. The moment " +
-    "Tim's transcribed content ends, your output ends.";
+    "replies are generated downstream by Kindroid, not by you.";
+
+  const rosterLine = input.rosterNames?.length
+    ? `Known people in Tim's roster (resolve names against these — "Henry" probably means "Hank" if "Hank" is in the roster): ${input.rosterNames.join(", ")}.\n`
+    : "";
+  const currentLine = input.currentCompanions?.length
+    ? `Currently understood to be present with Tim (besides Eli): ${input.currentCompanions.join(", ")}.\n`
+    : `No one else is currently understood to be present — it's just Tim (and Eli on the bridge).\n`;
+
+  // Companion inference instruction. Lives in the prompt as a separate
+  // STRUCTURED-OUTPUT block so Flash treats the JSON tail as a discrete
+  // task, not part of the emote/dialog generation.
+  const companionInference =
+    "\n\n[COMPANION INFERENCE — STRUCTURED TAIL]\n" +
+    rosterLine +
+    currentLine +
+    "After Tim's outgoing message text, append on its own line the literal " +
+    "marker `[COMPANION_DELTA]` followed by a single JSON object on the " +
+    "next line. The object has three keys: `added` (string[]), `removed` " +
+    "(string[]), `ambiguous` (array of {name, hint}). Infer from Tim's " +
+    "dialog and the conversation context who is physically present this " +
+    "turn vs. last turn.\n\n" +
+    "RULES:\n" +
+    "- ONLY include confirmed-present statements in `added` (e.g. \"Hank's in the car now\", \"just picked up Mom\", \"Dad's here too\"). Plans, hypotheticals, and people merely talked-about do NOT get added.\n" +
+    "- ONLY include explicit departures in `removed` (e.g. \"dropped Hank off\", \"Mom went home\"). Do NOT auto-remove people who simply haven't been mentioned in a while.\n" +
+    "- Resolve names against the roster when possible — if Tim says \"Henry\" and the roster has \"Hank\", emit \"Hank\" in `added`, not \"Henry\".\n" +
+    "- When Tim mentions someone but it's unclear if they're physically present (first mention without arrival context, or roster name that's close but not exact), put them in `ambiguous` with a one-line `hint` explaining the uncertainty. Do NOT add them to `added`. Tim will be asked to confirm via a popup.\n" +
+    "- When nothing changes this turn, emit `{\"added\": [], \"removed\": [], \"ambiguous\": []}` — never omit the tail.\n" +
+    "- Tim and Eli are ALWAYS implied present. Never include either of them in any of the three lists.\n\n" +
+    "Example tail (one person joins, nothing else):\n" +
+    "[COMPANION_DELTA]\n" +
+    "{\"added\": [\"Hank\"], \"removed\": [], \"ambiguous\": []}";
 
   const inputLabel = input.timDialog
     ? `[TIM'S INPUT]\n${input.timDialog}`
     : `[TIM'S INPUT]\n(Tim sent audio only — transcribe and build Tim's dialog from the audio.)`;
-  const header = `[SENSOR SNAPSHOT]\n${input.sensorSnapshot}\n\n${inputLabel}${audioHint}${videoHint}${outputScope}`;
+  const header = `[SENSOR SNAPSHOT]\n${input.sensorSnapshot}\n\n${inputLabel}${audioHint}${videoHint}${outputScope}${companionInference}`;
   parts.push({ text: header });
   for (const img of input.images ?? []) {
     parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });

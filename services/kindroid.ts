@@ -4,6 +4,16 @@ import { tracedFetch } from "@/session/diagnosticLog";
 
 const BASE_URL = "https://api.kindroid.ai/v1";
 
+// Prepended to every /send-message payload to keep Eli's emote-bracket
+// discipline from drifting over long sessions. Ported from MovieMode after
+// the same drift pattern (emote text leaking out of _(* *)_ markers and
+// breaking the parser) showed up there. The nested _(* TEXT *)_ inside the
+// directive is a working demonstration of the format, not just a description
+// of it, and the in-character emote wrapping keeps Eli from treating it as
+// an OOC stage direction.
+const FORMAT_DIRECTIVE =
+  "_(* DIRECTIVE: All Emotes have to go inside the _(* TEXT *)_ notation *)_";
+
 // 90s for /send-message — Kindroid's LLM typically replies in 5-30s, so 90s
 // is generous headroom. The CLAUDE.md spec called for 300s but in practice
 // that left Drive Mode frozen for 5+ min on cellular dead zones (Tim's
@@ -113,13 +123,14 @@ export async function sendMessage(
   message: string,
   options: SendMessageOptions = {}
 ): Promise<string> {
-  if (message.length > 4000) {
-    throw new Error(`Message is ${message.length} chars, exceeds Kindroid's 4000-char cap`);
+  const payload = `${FORMAT_DIRECTIVE}\n${message}`;
+  if (payload.length > 4000) {
+    throw new Error(`Message is ${payload.length} chars, exceeds Kindroid's 4000-char cap`);
   }
   const aiId = requireEnv("KINDROID_AI_ID");
   const body: Record<string, unknown> = {
     ai_id: aiId,
-    message,
+    message: payload,
     stream: false,
   };
   if (options.imageUrls?.length) {

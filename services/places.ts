@@ -10,6 +10,27 @@ export interface PlaceInfo {
   address?: string;
   /** Google Place ID — use for follow-up detail fetches */
   placeId?: string;
+  /**
+   * Hierarchical components for the PRESENT anchor's walk-up fallback —
+   * picks the most-specific available without baking the display string
+   * for the caller. premise = "House of Ravenwood", locality = "Yellow
+   * Springs", state = "OH", country = "USA". Earth is the hardcoded
+   * terminal fallback at the consumer.
+   */
+  hierarchy?: PlaceHierarchy;
+}
+
+export interface PlaceHierarchy {
+  /** Most-specific named POI ("House of Ravenwood", "Dark Star Comics"). */
+  premise?: string;
+  /** Neighborhood / sub-locality ("Glen Helen", "Over-the-Rhine"). */
+  sublocality?: string;
+  /** City / town ("Yellow Springs", "Cincinnati"). */
+  locality?: string;
+  /** State abbreviation ("OH", "MI"). */
+  state?: string;
+  /** Country name ("USA"). */
+  country?: string;
 }
 
 const PLACE_TYPES_TO_PREFER = new Set([
@@ -73,6 +94,12 @@ export async function reverseGeocode(
     const state = best.address_components.find((c) =>
       c.types.includes("administrative_area_level_1")
     )?.long_name;
+    const sublocality = best.address_components.find((c) =>
+      c.types.includes("sublocality") || c.types.includes("neighborhood")
+    )?.long_name;
+    const country = best.address_components.find((c) =>
+      c.types.includes("country")
+    )?.long_name;
 
     const displayName =
       poi
@@ -88,6 +115,13 @@ export async function reverseGeocode(
       placeType,
       address: best.formatted_address,
       placeId: best.place_id,
+      hierarchy: {
+        premise: poi ? best.address_components[0].long_name : undefined,
+        sublocality,
+        locality,
+        state: state ? shortState(state) : undefined,
+        country: country === "United States" ? "USA" : country,
+      },
     };
   } catch {
     return null;

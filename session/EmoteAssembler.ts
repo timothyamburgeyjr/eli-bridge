@@ -13,6 +13,19 @@ export interface AssembleOptions {
   videos?: { mimeType: string; data: string }[];
   history?: Content[];
   /**
+   * Current companion roster — passed through to Gemini so it can return
+   * deltas relative to what's already understood to be present. Empty
+   * list = just Tim and Eli. Caller (chatStore) reads from useCompanions
+   * before invoking and applies the returned delta after.
+   */
+  currentCompanions?: string[];
+  /**
+   * Roster of known People (names only) so Gemini resolves "Henry" → "Hank"
+   * instead of inventing new identities. Empty/undefined → no roster
+   * guidance offered to the model.
+   */
+  rosterNames?: string[];
+  /**
    * One-shot scene memo from Scene Capture. Prepended to the sensor snapshot
    * for this call only, then caller is responsible for clearing.
    */
@@ -100,6 +113,8 @@ export class EmoteAssembler {
       audios: opts.audios,
       videos: opts.videos,
       history: opts.history,
+      currentCompanions: opts.currentCompanions,
+      rosterNames: opts.rosterNames,
       signal: opts.signal,
     });
 
@@ -113,6 +128,10 @@ export class EmoteAssembler {
         leadingEmote: capped,
         body: parsed.body,
         raw: `_(*${capped}*)_ ${parsed.body}`.trim(),
+        // Preserve the companion delta across condensation — condenseEmote
+        // only trims the leading emote text; the delta inference is still
+        // valid for this turn.
+        companionDelta: parsed.companionDelta,
       };
     }
 

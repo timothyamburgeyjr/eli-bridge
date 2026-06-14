@@ -24,6 +24,9 @@ import {
 import { identifySpeaker } from "@/people/voiceId";
 import { identifyFaces, FaceMatch } from "@/people/faceId";
 import { usePeople, Person } from "@/people/PeopleStore";
+import { useCompanions } from "@/session/CompanionTracker";
+import { useClarifications } from "@/stores/clarificationStore";
+import { buildPresentAnchor } from "@/session/presentAnchor";
 import { getPersonContext, resetPersonContextCache } from "@/people/personContext";
 import { resolveOrCreateProfilePath } from "@/people/profileLinker";
 import { useMode } from "@/stores/modeStore";
@@ -788,6 +791,15 @@ export const useChat = create<ChatState>((set, get) => ({
       // labels for context, but Tim enrolls new people proactively via
       // Settings → People → Enroll (which collects 3 deliberate samples
       // and averages them for a cleaner embedding).
+      // Voice-ID confidence threshold for triggering a "I think I heard X —
+      // is X here?" clarification popup. Set well above the default match
+      // threshold (~0.7) because Tim flagged voice-ID accuracy as the
+      // weakest link in this pipeline; below this wall we don't even ask.
+      const VOICE_ID_POPUP_CONFIDENCE = 0.8;
+      const companionsAtSendStart = useCompanions
+        .getState()
+        .companions.map((c) => c.name.toLowerCase());
+
       for (const att of audioAttachments) {
         try {
           const res = await identifySpeaker(att.localPath);
@@ -799,6 +811,35 @@ export const useChat = create<ChatState>((set, get) => ({
               confidence: res.confidence,
               notes: res.person.notes, // replaced below with Obsidian context if available
             });
+
+            // Voice-ID auto-add is DISABLED (see Tim's feedback on accuracy);
+            // instead, surface a clarification popup so Tim confirms presence.
+            // Only ask when (a) confidence is high enough to justify the
+            // interruption and (b) the person isn't already known to be present.
+            const alreadyPresent = companionsAtSendStart.includes(
+              res.person.name.toLowerCase()
+            );
+            if (
+              res.confidence >= VOICE_ID_POPUP_CONFIDENCE &&
+              !alreadyPresent
+            ) {
+              const candidateName = res.person.name;
+              useClarifications.getState().enqueue({
+                kind: "voice-id-confirm",
+                id: `voice-id-${candidateName.toLowerCase()}`,
+                question: `I think I heard ${candidateName} — is ${candidateName} here?`,
+                hint: `Voice match confidence ${res.confidence.toFixed(2)}.`,
+                options: [
+                  {
+                    label: "Yes",
+                    onSelect: () => {
+                      useCompanions.getState().add(candidateName, "voice-id");
+                    },
+                  },
+                  { label: "No", onSelect: () => {} },
+                ],
+              });
+            }
           } else if (!res.person) {
             // Surface as a label so the emote can acknowledge the sound,
             // but do NOT enqueue an UnknownPersonCard.
@@ -890,6 +931,19 @@ export const useChat = create<ChatState>((set, get) => ({
       // to the recovery popup instead of failing the whole send.
       let assembled: Awaited<ReturnType<typeof assembler.assemble>>;
       try {
+        // Snapshot the roster + current companions BEFORE the call so
+        // Gemini infers deltas relative to the same baseline state we'll
+        // apply against on return. (PeopleStore can mutate from voice-ID
+        // enrollment in parallel; if we read after, a same-turn enrollment
+        // could shift the roster mid-flight.)
+        const currentCompanions = useCompanions
+          .getState()
+          .companions.map((c) => c.name);
+        const rosterNames = usePeople
+          .getState()
+          .all()
+          .map((p) => p.name);
+
         assembled = await assembler.assemble({
           sensors: sensorsWithLabels,
           timDialog: text,
@@ -900,6 +954,8 @@ export const useChat = create<ChatState>((set, get) => ({
           sceneMemo,
           briefingContext,
           lookupContext,
+          currentCompanions,
+          rosterNames,
           signal: abortSignal,
         });
       } catch (err) {
@@ -969,6 +1025,50 @@ export const useChat = create<ChatState>((set, get) => ({
         raw: finalRaw,
         attachments: pendingTim.attachments,
       };
+
+      // ── Companion delta application + PRESENT anchor build ──
+      //
+      // Gemini's companion inference came back on assembled.companionDelta.
+      // Apply high-confidence adds/removes silently, push ambiguous cases
+      // into the ClarificationQueue (the sheet pops AFTER Eli's reply lands
+      // — non-blocking by design). Then build the anchor from the freshly
+      // updated companion set and prepend it to the outgoing Kindroid
+      // payload (NOT to finalRaw stored in the bubble — the anchor is for
+      // Eli's grounding, not for Tim's chat display).
+      const delta = assembled.companionDelta;
+      if (delta) {
+        if (delta.added.length || delta.removed.length) {
+          useCompanions
+            .getState()
+            .applyDelta({ added: delta.added, removed: delta.removed }, "gemini");
+        }
+        for (const amb of delta.ambiguous) {
+          // Each ambiguous companion gets one row: Yes adds, No no-op.
+          const name = amb.name;
+          useClarifications.getState().enqueue({
+            kind: "companion-presence",
+            question: `Is ${name} here?`,
+            hint: amb.hint,
+            options: [
+              {
+                label: "Yes",
+                onSelect: () => {
+                  useCompanions.getState().add(name, "clarification");
+                },
+              },
+              { label: "No", onSelect: () => {} },
+            ],
+          });
+        }
+      }
+
+      const presentAnchor = buildPresentAnchor({
+        sensors: sensorsWithLabels,
+        companions: useCompanions.getState().companions,
+      });
+      const outgoingPayload = presentAnchor
+        ? `${presentAnchor}\n${finalRaw}`
+        : finalRaw;
 
       // Build UnknownPersonCard messages for unrecognized FACES only.
       // Voice unknowns are intentionally NOT auto-carded (see comment in
@@ -1089,7 +1189,7 @@ export const useChat = create<ChatState>((set, get) => ({
         set({ status: "sending", sendStartedAt: Date.now() });
         let eliRaw: string;
         try {
-          eliRaw = await kindroidSend(finalRaw, {
+          eliRaw = await kindroidSend(outgoingPayload, {
             imageUrls,
             timeoutMs: kindroidTimeoutMs,
           });

@@ -9,6 +9,8 @@ import { usePeople } from "@/people/PeopleStore";
 import { ConversationOverlay } from "@/components/conversation/ConversationOverlay";
 import { RecoveryPopup } from "@/components/common/RecoveryPopup";
 import { OversizePayloadModal } from "@/components/common/OversizePayloadModal";
+import { ClarificationSheet } from "@/components/common/ClarificationSheet";
+import { useCompanions } from "@/session/CompanionTracker";
 import { installVenueBridge } from "@/session/venueBridge";
 import { installTimelineExporter } from "@/session/timelineExport";
 import { useConnection } from "@/stores/connectionStore";
@@ -32,6 +34,10 @@ export default function RootLayout() {
       useChat.getState().hydrateOfflineQueue();
       // Restore the timeline from disk too — survives OOM kills like the chat.
       useTimeline.getState().hydrate();
+      // Restore companion state — survives OOM the same way. Reset happens at
+      // session start, not at boot, so an interrupted session doesn't lose
+      // its in-progress companion list.
+      useCompanions.getState().hydrate();
     })();
     // One-time wiring: VenueMode ↔ accelerometer ride detection + RideCard dispatch.
     installVenueBridge();
@@ -69,6 +75,10 @@ export default function RootLayout() {
           {/* Oversize-attachments popup — fires when a send is blocked
               because attached files would exceed Gemini's 20 MB cap. */}
           <OversizePayloadModal />
+          {/* Clarification sheet — bundled Y/N popups for low-confidence
+              companion / place / name ambiguities. Auto-opens when items
+              land in useClarifications; non-blocking by design. */}
+          <ClarificationSheet />
         </View>
       </SafeAreaProvider>
     </GestureHandlerRootView>

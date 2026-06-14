@@ -54,6 +54,12 @@ export async function gatherSensorSnapshot(): Promise<SensorSnapshot> {
       ...loc,
       placeName: "Home · 1550 Weisflock Rd, Lynchburg OH",
       placeType: "residential",
+      placeHierarchy: {
+        premise: "Home",
+        locality: "Lynchburg",
+        state: "OH",
+        country: "USA",
+      },
     };
   } else {
     // Elsewhere — resolve a human-friendly place name + type
@@ -63,6 +69,7 @@ export async function gatherSensorSnapshot(): Promise<SensorSnapshot> {
         ...loc,
         placeName: place.name,
         placeType: place.placeType,
+        placeHierarchy: place.hierarchy,
       };
     }
   }
