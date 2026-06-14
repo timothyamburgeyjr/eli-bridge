@@ -1024,6 +1024,8 @@ export const useChat = create<ChatState>((set, get) => ({
         dialog: ambientPing ? "" : text ? convertTimAsterisksToEmotes(text) : safeBody,
         raw: finalRaw,
         attachments: pendingTim.attachments,
+        // presentAnchor populated immediately below — stashed on the bubble
+        // so the chat UI can render exactly what Eli received for this turn.
       };
 
       // ── Companion delta application + PRESENT anchor build ──
@@ -1069,6 +1071,14 @@ export const useChat = create<ChatState>((set, get) => ({
       const outgoingPayload = presentAnchor
         ? `${presentAnchor}\n${finalRaw}`
         : finalRaw;
+
+      // Stash the anchor onto the bubble so the chat UI can render what was
+      // actually pushed to Eli for this turn (FORMAT_DIRECTIVE + PRESENT
+      // anchor + the user-facing emote + dialog).
+      if (presentAnchor) {
+        (finalizedTim as unknown as { presentAnchor: string }).presentAnchor =
+          presentAnchor;
+      }
 
       // Build UnknownPersonCard messages for unrecognized FACES only.
       // Voice unknowns are intentionally NOT auto-carded (see comment in

@@ -36,6 +36,7 @@ function renderRow(item: ChatItem) {
           queued={item.queued}
           failed={item.failed}
           attachments={item.attachments}
+          presentAnchor={item.presentAnchor}
         />
       );
     case "eli":

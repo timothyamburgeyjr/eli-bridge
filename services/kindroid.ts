@@ -11,7 +11,10 @@ const BASE_URL = "https://api.kindroid.ai/v1";
 // directive is a working demonstration of the format, not just a description
 // of it, and the in-character emote wrapping keeps Eli from treating it as
 // an OOC stage direction.
-const FORMAT_DIRECTIVE =
+//
+// Exported so the chat UI can render it above Tim's bubble as part of "what
+// was actually pushed to Eli for this turn."
+export const FORMAT_DIRECTIVE =
   "_(* DIRECTIVE: All Emotes have to go inside the _(* TEXT *)_ notation *)_";
 
 // 90s for /send-message — Kindroid's LLM typically replies in 5-30s, so 90s

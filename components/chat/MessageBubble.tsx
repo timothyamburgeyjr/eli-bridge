@@ -14,6 +14,7 @@ import { EliAvatar } from "@/components/common/EliAvatar";
 import { FormattedBody } from "./FormattedBody";
 import { useAudio } from "@/stores/audioStore";
 import { PhotoLookupModal } from "./PhotoLookupModal";
+import { FORMAT_DIRECTIVE } from "@/services/kindroid";
 
 interface ContextPill {
   icon: string;
@@ -47,6 +48,14 @@ interface TimProps {
   /** Image/audio/video files attached to this message. Images render inline
    *  in the bubble; other kinds are noted but not rendered (yet). */
   attachments?: TimAttachment[];
+  /**
+   * The dynamic PRESENT anchor that was prepended to this turn's outgoing
+   * Kindroid payload (e.g. `_(* PRESENT: You are with Tim in Yellow
+   * Springs. You are walking. *)_`). Displayed above the bubble so Tim can
+   * see exactly what context Eli received this turn. Absent on older
+   * bubbles persisted before this field existed.
+   */
+  presentAnchor?: string;
 }
 
 export function TimBubble({
@@ -59,6 +68,7 @@ export function TimBubble({
   queued,
   failed,
   attachments,
+  presentAnchor,
 }: TimProps) {
   const body = raw ?? composeRaw(emote, dialog);
   const dimmed = queued || failed;
@@ -66,11 +76,25 @@ export function TimBubble({
   const videos = (attachments ?? []).filter((a) => a.type === "video");
   const [previewUri, setPreviewUri] = useState<string | null>(null);
   const [lookupUri, setLookupUri] = useState<string | null>(null);
+  // Only show the prepended anchors when this turn actually had one. Older
+  // bubbles persisted before the anchor existed → skip the header silently.
+  const showAnchors = !!presentAnchor;
   return (
     <View style={[styles.row, { justifyContent: "flex-end", opacity: isDrive ? 0.7 : 1, marginBottom: isDrive ? 14 : 20 }]}>
       <View style={{ maxWidth: "78%", alignItems: "flex-end", gap: 4 }}>
         {isDrive && (
           <Text style={{ fontSize: 9, color: C.muted }}>🚗 Voice message recorded at speed</Text>
+        )}
+        {showAnchors && (
+          <View style={styles.anchorBlock}>
+            <Text style={styles.anchorLabel}>Prepended to Eli:</Text>
+            <Text style={styles.anchorDirective} numberOfLines={2}>
+              {FORMAT_DIRECTIVE}
+            </Text>
+            <Text style={styles.anchorPresent} numberOfLines={3}>
+              {presentAnchor}
+            </Text>
+          </View>
         )}
         <View
           style={[
@@ -291,6 +315,37 @@ export function EliBubble({ id, emote, dialog, raw, time, isDrive }: EliProps) {
 const styles = StyleSheet.create({
   row: { flexDirection: "row", width: "100%" },
   bubble: { borderWidth: 1, paddingHorizontal: 14, paddingVertical: 11 },
+  anchorBlock: {
+    alignSelf: "stretch",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: C.border + "88",
+    backgroundColor: C.surface + "AA",
+    marginBottom: 2,
+  },
+  anchorLabel: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: C.muted,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: 3,
+  },
+  anchorDirective: {
+    fontSize: 10,
+    color: C.muted,
+    fontStyle: "italic",
+    lineHeight: 14,
+  },
+  anchorPresent: {
+    fontSize: 10,
+    color: C.emote,
+    fontStyle: "italic",
+    lineHeight: 14,
+    marginTop: 3,
+  },
   pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 8 },
   timestamp: { fontSize: 10, color: C.muted, paddingRight: 4 },
   eliFooter: {
