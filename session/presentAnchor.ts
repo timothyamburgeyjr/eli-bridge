@@ -102,15 +102,50 @@ function describePlace(sensors: SensorSnapshot): string {
 }
 
 /**
+ * Module-level memory of the last moment Activity Recognition reported
+ * "car." Used to distinguish "sitting in a parked car" (recent car activity
+ * + currently STILL) from generic "sitting still on the couch." Updated
+ * as a side-effect of buildPresentAnchor each time it sees activity=car.
+ * Self-clears naturally after IN_CAR_MEMORY_MS — no explicit reset needed
+ * because the 5-min window is short enough that stale state self-stales.
+ */
+let _lastCarActivityAt: number | null = null;
+const IN_CAR_MEMORY_MS = 5 * 60_000;
+
+/**
+ * Speed threshold (m/s) below which "car" reads as "in the car" instead of
+ * "driving." 2 m/s ≈ 4.5 mph — anything slower than that is at-a-light or
+ * parking-lot crawl, not active driving. Above is real motion. The
+ * threshold is well below the inferActivityFromSpeed "car" wall (11 mph)
+ * because here we're SPLITTING within the already-known car state, not
+ * detecting whether-it's-a-car-at-all.
+ */
+const DRIVING_SPEED_THRESHOLD_MS = 2;
+
+/**
  * Map the discrete Activity Recognition vocabulary to a stock prose
- * verb-phrase. Tweaked slightly for indoors-vs-outdoors when STILL:
- * "sitting still" reads naturally at home/restaurant, "standing still"
- * reads naturally outdoors. Returns "" for UNKNOWN so the anchor just
- * drops the sentence rather than guessing.
+ * verb-phrase. Two refinements beyond the bare AR vocabulary:
+ *   1. Within "car" mode, split into "driving" vs "in the car" by GPS
+ *      speed — so a red-light pause reads naturally and active driving
+ *      is called out distinctly.
+ *   2. When AR reports "still" but we were in a car within the last few
+ *      minutes, render "sitting in the car" instead of generic still —
+ *      catches the parked-but-still-occupied case where AR has flipped
+ *      car → still after the engine stopped.
+ * Returns "" for UNKNOWN so the anchor drops the sentence rather than
+ * guessing.
  */
 function describeActivity(sensors: SensorSnapshot): string {
   const activity = sensors.activity;
   if (!activity) return "";
+
+  if (activity === "car") {
+    _lastCarActivityAt = Date.now();
+    const speed = sensors.location?.speed ?? 0;
+    return speed > DRIVING_SPEED_THRESHOLD_MS
+      ? "You are driving."
+      : "You are in the car.";
+  }
 
   switch (activity) {
     case "walking":
@@ -119,18 +154,24 @@ function describeActivity(sensors: SensorSnapshot): string {
       return "You are running.";
     case "bicycle":
       return "You are riding a bike.";
-    case "car":
-      return "You are in the car.";
     case "bus":
       return "You are on the bus.";
     case "train":
       return "You are on the train.";
     case "subway":
       return "You are on the subway.";
-    case "still":
+    case "still": {
+      // Sticky-car-memory check before falling through to generic still.
+      if (
+        _lastCarActivityAt !== null &&
+        Date.now() - _lastCarActivityAt < IN_CAR_MEMORY_MS
+      ) {
+        return "You are sitting in the car.";
+      }
       return isIndoor(sensors.location?.placeType)
         ? "You are sitting still."
         : "You are standing still.";
+    }
     default:
       return "";
   }
