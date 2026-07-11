@@ -12,6 +12,7 @@ import { C } from "@/constants/theme";
 import { Pill } from "@/components/common/PillButton";
 import { PersonaAvatar } from "@/components/common/PersonaAvatar";
 import { useActivePersonality } from "@/session/SessionStore";
+import { getPersonality, type PersonalityKey } from "@/constants/personalities";
 import { FormattedBody } from "./FormattedBody";
 import type { MoodLabel } from "@/constants/moods";
 import { useAudio } from "@/stores/audioStore";
@@ -225,6 +226,9 @@ export function TimBubble({
 interface AiProps {
   id: string;
   moodLabel?: MoodLabel;
+  /** Who said it, stamped at creation. Falls back to the active companion for
+   *  messages written before the stamp existed. */
+  personality?: PersonalityKey;
   emote?: string;
   dialog: string;
   raw?: string;
@@ -232,9 +236,21 @@ interface AiProps {
   isDrive?: boolean;
 }
 
-export function AiBubble({ id, emote, dialog, raw, time, isDrive, moodLabel }: AiProps) {
+export function AiBubble({
+  id,
+  emote,
+  dialog,
+  raw,
+  time,
+  isDrive,
+  moodLabel,
+  personality,
+}: AiProps) {
   const body = raw ?? composeRaw(emote, dialog);
-  const persona = useActivePersonality();
+  const active = useActivePersonality();
+  // The stamp wins: a hydrated thread should keep the face of whoever
+  // actually said it, not borrow whoever is on the bridge right now.
+  const persona = personality ? getPersonality(personality) : active;
   const bubbleBg = persona?.bubble ?? C.eliBubble;
   const entry = useAudio((s) => s.cache[id]);
   const playAi = useAudio((s) => s.playAi);

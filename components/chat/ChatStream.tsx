@@ -50,6 +50,7 @@ function renderRow(item: ChatItem) {
           time={item.time}
           isDrive={item.isDrive}
           moodLabel={item.moodLabel}
+          personality={item.personality}
         />
       );
     default:
