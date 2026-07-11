@@ -52,6 +52,13 @@ export function stripFieldHeader(markdown: string): string {
 export interface LoadedPersona {
   /** The assembled block, ready for setSessionContext(). */
   text: string;
+  /**
+   * The response directive on its own — the 250-char field that defines HOW
+   * this companion speaks. Handed to the ElevenLabs tag pass separately,
+   * because a tag pass that doesn't know about Bobby's gravel or Tommy's
+   * stutter will tag all eight of them identically.
+   */
+  responseDirective: string;
   /** Which of the four fields actually loaded. */
   loaded: string[];
   /** Which failed or were empty — logged, not fatal. */
@@ -75,9 +82,11 @@ export async function loadPersona(
 
   const loaded = results.filter((r) => r.body);
   const missing = results.filter((r) => !r.body).map((r) => r.file);
+  const responseDirective =
+    results.find((r) => r.file === "response-directive-current.md")?.body ?? "";
 
   if (loaded.length === 0) {
-    return { text: "", loaded: [], missing };
+    return { text: "", responseDirective, loaded: [], missing };
   }
 
   const header =
@@ -91,5 +100,10 @@ export async function loadPersona(
   const sections = loaded.map((r) => `${r.heading}\n${r.body}`);
   const text = [header, ...sections].join("\n\n");
 
-  return { text, loaded: loaded.map((r) => r.file), missing };
+  return {
+    text,
+    responseDirective,
+    loaded: loaded.map((r) => r.file),
+    missing,
+  };
 }

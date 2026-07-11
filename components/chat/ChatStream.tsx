@@ -37,6 +37,7 @@ function renderRow(item: ChatItem) {
           failed={item.failed}
           attachments={item.attachments}
           presentAnchor={item.presentAnchor}
+          moodLabel={item.moodLabel}
         />
       );
     case "ai":
@@ -48,6 +49,7 @@ function renderRow(item: ChatItem) {
           raw={item.raw}
           time={item.time}
           isDrive={item.isDrive}
+          moodLabel={item.moodLabel}
         />
       );
     default:

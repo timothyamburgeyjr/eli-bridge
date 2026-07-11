@@ -7,6 +7,7 @@ import { View } from "react-native";
 import { C } from "@/constants/theme";
 import { usePeople } from "@/people/PeopleStore";
 import { ConversationOverlay } from "@/components/conversation/ConversationOverlay";
+import { MoodBorder } from "@/components/mood/MoodBorder";
 import { RecoveryPopup } from "@/components/common/RecoveryPopup";
 import { OversizePayloadModal } from "@/components/common/OversizePayloadModal";
 import { ClarificationSheet } from "@/components/common/ClarificationSheet";
@@ -66,6 +67,12 @@ export default function RootLayout() {
               contentStyle: { backgroundColor: C.bg },
             }}
           />
+          {/* Moment Mood — a slow color pulse around the edge of every screen.
+              Sits above the Stack so it rims the content, but BELOW the
+              overlays below, all of which are <Modal>s in their own Android
+              window: Conversation Mode is therefore free of it by
+              construction, which is what we want at speed. */}
+          <MoodBorder />
           {/* Conversation Mode overlay is rendered at the layout root so it's
               visible above all screens, including Settings, modals, etc. */}
           <ConversationOverlay />

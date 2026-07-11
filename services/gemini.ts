@@ -3,6 +3,13 @@ import { requireEnv } from "./env";
 import { GEMINI_SYSTEM_PROMPT } from "./geminiPrompt.generated";
 import { CONFIG } from "@/constants/config";
 import { logApiCall } from "@/session/diagnosticLog";
+import {
+  isMoodLabel,
+  MOODS,
+  MOOD_LABELS,
+  type MoodLabel,
+  type MoodReading,
+} from "@/constants/moods";
 
 // ── Singletons ────────────────────────────────────────────────────
 
@@ -11,6 +18,10 @@ let _flash: GenerativeModel | null = null;
 let _pro: GenerativeModel | null = null;
 let _systemPromptExtras = ""; // prepended: the session's persona block
 let _companionName = "the companion"; // set per session by setSessionContext
+// The companion's response directive — the 250-char field that defines HOW he
+// speaks. Fed to addAudioTags so Bobby's gravel and Tommy's stutter reach the
+// TTS layer instead of all eight being tagged identically.
+let _companionVoice = "";
 
 function genAI(): GoogleGenerativeAI {
   if (!_genAI) _genAI = new GoogleGenerativeAI(requireEnv("GEMINI_API_KEY"));
@@ -53,9 +64,16 @@ function pro(): GenerativeModel {
  * `companion` is a plain string rather than a Personality so this service stays
  * free of a SessionStore import — SessionStore already imports from here.
  */
-export function setSessionContext(extras: string, companion?: string) {
+export function setSessionContext(
+  extras: string,
+  companion?: string,
+  voiceDirective?: string
+) {
   _systemPromptExtras = extras.trim();
   if (companion) _companionName = companion;
+  // Cleared on every session start (callers pass "" when they have nothing),
+  // so a failed persona load can't leave the last companion's voice in place.
+  _companionVoice = (voiceDirective ?? "").trim();
   _flash = null;
   _pro = null;
 }
@@ -104,66 +122,134 @@ export interface ParsedMessage {
     removed: string[];
     ambiguous: { name: string; hint: string }[];
   };
+  /**
+   * Gemini's read of the moment's mood, emitted as a second structured tail.
+   * Absent on non-emote-assembly paths and whenever the tail is missing or
+   * malformed — mood is never load-bearing for a send.
+   */
+  moodRead?: MoodReading;
 }
 
 const EMOTE_RE = /^_\(\*\s*([\s\S]*?)\s*\*\)_\s*/;
-const COMPANION_DELTA_RE = /\n*\[COMPANION_DELTA\]\s*(\{[\s\S]*?\})\s*$/;
+
+const MOOD_MARKER = "[MOOD]";
+const DELTA_MARKER = "[COMPANION_DELTA]";
 
 /**
  * Parse a Bridge-format message into its leading emote + remaining body.
- * Works for both Gemini-composed outgoing messages and Eli's incoming replies —
- * both use the `_(*emote*)_ dialog` convention.
+ * Works for both Gemini-composed outgoing messages and the companion's incoming
+ * replies — both use the `_(*emote*)_ dialog` convention.
  *
- * If the raw text ends with a `[COMPANION_DELTA] { ... }` tail (only
- * emitted by assembleEmote), the JSON is parsed off and the tail stripped
- * from the body before returning. Malformed / missing tail → companionDelta
- * is left undefined and the body is unchanged.
+ * assembleEmote appends up to TWO structured tails after the dialog:
+ * `[COMPANION_DELTA] {...}` and `[MOOD] {...}`. They are peeled off one at a
+ * time, LAST MARKER FIRST, so the order the model emitted them in doesn't
+ * matter.
+ *
+ * Two traps this shape exists to avoid, both found by testing rather than
+ * reasoning:
+ *
+ *  1. The obvious implementation — an end-anchored regex with a lazy
+ *     `\{[\s\S]*?\}` per tail — has each pattern SWALLOW THE OTHER. The lazy
+ *     group expands to the last `}` in the string, so `[MOOD]` emitted before
+ *     `[COMPANION_DELTA]` captures the delta tail as part of its own JSON.
+ *  2. A truncated or malformed tail matches no regex at all, so it never gets
+ *     stripped — and the literal `[COMPANION_DELTA] {...}` text then ships to
+ *     Kindroid inside Tim's message. Peeling on the MARKER instead of on a
+ *     well-formed JSON match means a bad tail still gets removed; we just lose
+ *     its value, which is the correct failure. Mood and companion tracking are
+ *     never load-bearing for a send.
  */
 export function parseAssembledMessage(text: string): ParsedMessage {
   let raw = text.trim();
 
-  // Pull the companion-delta tail off before the emote-body split so the
-  // tail JSON doesn't end up in the body.
   let companionDelta: ParsedMessage["companionDelta"];
-  const deltaMatch = raw.match(COMPANION_DELTA_RE);
-  if (deltaMatch) {
-    try {
-      const parsed = JSON.parse(deltaMatch[1]) as {
-        added?: unknown;
-        removed?: unknown;
-        ambiguous?: unknown;
-      };
-      const added = Array.isArray(parsed.added)
-        ? parsed.added.filter((v): v is string => typeof v === "string")
-        : [];
-      const removed = Array.isArray(parsed.removed)
-        ? parsed.removed.filter((v): v is string => typeof v === "string")
-        : [];
-      const ambiguous = Array.isArray(parsed.ambiguous)
-        ? parsed.ambiguous
-            .filter(
-              (v): v is { name: string; hint: string } =>
-                !!v &&
-                typeof v === "object" &&
-                typeof (v as { name?: unknown }).name === "string" &&
-                typeof (v as { hint?: unknown }).hint === "string"
-            )
-            .map((v) => ({ name: v.name, hint: v.hint }))
-        : [];
-      companionDelta = { added, removed, ambiguous };
-    } catch {
-      // Malformed JSON tail — silently drop; emote layer still works.
-    }
-    raw = raw.slice(0, deltaMatch.index).trimEnd();
+  let moodRead: MoodReading | undefined;
+
+  // Bounded: two tails, plus slack for a model that repeats one.
+  for (let i = 0; i < 4; i++) {
+    const iMood = raw.lastIndexOf(MOOD_MARKER);
+    const iDelta = raw.lastIndexOf(DELTA_MARKER);
+    const at = Math.max(iMood, iDelta);
+    if (at < 0) break;
+
+    const isMood = iMood > iDelta;
+    const marker = isMood ? MOOD_MARKER : DELTA_MARKER;
+
+    // This is the LAST marker in the string, so everything after it is its
+    // payload — no need to guess where the JSON ends.
+    const after = raw.slice(at + marker.length);
+    const brace = after.indexOf("{");
+    // A marker with no object after it isn't a tail; leave it alone rather
+    // than eat the rest of the message.
+    if (brace < 0 || after.slice(0, brace).trim() !== "") break;
+
+    const json = after.slice(brace).trim();
+    if (isMood) moodRead ??= parseMoodTail(json);
+    else companionDelta ??= parseDeltaTail(json);
+
+    raw = raw.slice(0, at).trimEnd();
   }
 
   const m = raw.match(EMOTE_RE);
   if (!m) {
-    return { leadingEmote: "", body: raw, raw, companionDelta };
+    return { leadingEmote: "", body: raw, raw, companionDelta, moodRead };
   }
   const leadingEmote = m[1];
   const body = raw.slice(m[0].length).trim();
-  return { leadingEmote, body, raw, companionDelta };
+  return { leadingEmote, body, raw, companionDelta, moodRead };
+}
+
+function parseDeltaTail(json: string): ParsedMessage["companionDelta"] {
+  try {
+    const parsed = JSON.parse(json) as {
+      added?: unknown;
+      removed?: unknown;
+      ambiguous?: unknown;
+    };
+    const added = Array.isArray(parsed.added)
+      ? parsed.added.filter((v): v is string => typeof v === "string")
+      : [];
+    const removed = Array.isArray(parsed.removed)
+      ? parsed.removed.filter((v): v is string => typeof v === "string")
+      : [];
+    const ambiguous = Array.isArray(parsed.ambiguous)
+      ? parsed.ambiguous
+          .filter(
+            (v): v is { name: string; hint: string } =>
+              !!v &&
+              typeof v === "object" &&
+              typeof (v as { name?: unknown }).name === "string" &&
+              typeof (v as { hint?: unknown }).hint === "string"
+          )
+          .map((v) => ({ name: v.name, hint: v.hint }))
+      : [];
+    return { added, removed, ambiguous };
+  } catch {
+    return undefined;
+  }
+}
+
+function parseMoodTail(json: string): MoodReading | undefined {
+  try {
+    const p = JSON.parse(json) as Record<string, unknown>;
+    if (!isMoodLabel(p.label)) return undefined;
+    const num = (v: unknown, lo: number, hi: number, dflt: number) =>
+      typeof v === "number" && Number.isFinite(v)
+        ? Math.max(lo, Math.min(hi, v))
+        : dflt;
+    return {
+      label: p.label,
+      valence: num(p.valence, -1, 1, 0),
+      energy: num(p.energy, 0, 1, 0.3),
+      confidence: num(p.confidence, 0, 1, 0.3),
+      sources: Array.isArray(p.sources)
+        ? p.sources.filter((v): v is string => typeof v === "string").slice(0, 3)
+        : [],
+      origin: "gemini",
+    };
+  } catch {
+    return undefined;
+  }
 }
 
 // ── assembleEmote ────────────────────────────────────────────────
@@ -249,10 +335,45 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
     "the optional leading _(*ambient emote*)_ plus Tim's verbatim dialog " +
     "(transcribed from audio or taken from TIM'S INPUT), with optional " +
     "inline tonal-shift emotes INSIDE Tim's speech. Then — ALWAYS — the " +
-    "[COMPANION_DELTA] tail described below. That's the entire output. " +
+    "[COMPANION_DELTA] tail and the [MOOD] tail described below. Those two " +
+    "structured tails are the ONLY permitted exceptions; that's the entire " +
+    "output. " +
     `DO NOT generate ${who}'s response, ${who}'s emotes, any dialog addressed ` +
     `TO Tim, or any continuation of the conversation. You are the bridge layer; ` +
     `${who}'s replies are generated downstream by Kindroid, not by you.`;
+
+  // Mood read — a second structured tail, peeled off by parseAssembledMessage
+  // and never sent to Kindroid. The model that READS the mood is the model that
+  // WRITES the words, in one forward pass, so it costs nothing extra and lands
+  // at exactly the right layer.
+  const moodTail =
+    "\n\n[MOOD — STRUCTURED TAIL]\n" +
+    "After the [COMPANION_DELTA] tail, append on its own line the literal " +
+    "marker `[MOOD]` followed by a single JSON object on the next line, " +
+    "reporting the emotional weather of Tim's present moment.\n\n" +
+    `- \`label\` — EXACTLY ONE of: ${MOOD_LABELS.join(", ")}. No other value is ` +
+    "valid. If nothing distinctive is happening, `neutral` is the correct and " +
+    "expected answer — it is not a failure.\n" +
+    "- `valence` — how good/bad this moment feels to Tim. -1.0 (dread, grief) " +
+    "to 1.0 (joy). 0 is flat.\n" +
+    "- `energy` — how activated the moment is. 0.0 (stillness) to 1.0 " +
+    "(adrenaline). Note that `ominous` and `charged` are BOTH high-energy, and " +
+    "`melancholy` and `serene` are BOTH low-energy. Energy is not happiness.\n" +
+    "- `confidence` — 0.0–1.0. Be honest and conservative. One ambiguous text " +
+    "from Tim with no photos is a 0.3, not a 0.8. Exceed 0.8 only when the " +
+    "moment is unmistakable.\n" +
+    "- `sources` — 1–3 SHORT strings naming the concrete evidence you actually " +
+    "used. These are shown to Tim. \"Tim's voice tightened\" is a source. " +
+    "\"The vibe\" is not.\n\n" +
+    "Weigh what Tim SAYS and what his PHOTOS SHOW above what the sensors " +
+    "report. If the snapshot carries a provisional mood read, treat it as a " +
+    "HINT you may override — the sensors set a floor; you have the whole " +
+    "moment. Emit this tail on EVERY message, including when the mood is " +
+    "neutral. It is machine-read and stripped before the message is sent.\n\n" +
+    "Example tail:\n" +
+    "[MOOD]\n" +
+    '{"label":"charged","valence":0.7,"energy":0.9,"confidence":0.75,' +
+    '"sources":["queue for The Beast","Tim\'s dialog is clipped and fast"]}';
 
   const rosterLine = input.rosterNames?.length
     ? `Known people in Tim's roster (resolve names against these — "Henry" probably means "Hank" if "Hank" is in the roster): ${input.rosterNames.join(", ")}.\n`
@@ -288,7 +409,7 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
   const inputLabel = input.timDialog
     ? `[TIM'S INPUT]\n${input.timDialog}`
     : `[TIM'S INPUT]\n(Tim sent audio only — transcribe and build Tim's dialog from the audio.)`;
-  const header = `[SENSOR SNAPSHOT]\n${input.sensorSnapshot}\n\n${inputLabel}${audioHint}${videoHint}${outputScope}${companionInference}`;
+  const header = `[SENSOR SNAPSHOT]\n${input.sensorSnapshot}\n\n${inputLabel}${audioHint}${videoHint}${outputScope}${companionInference}${moodTail}`;
   parts.push({ text: header });
   for (const img of input.images ?? []) {
     parts.push({ inlineData: { mimeType: img.mimeType, data: img.data } });
@@ -751,23 +872,58 @@ function withDeadline<T>(
  * delivery less flat. The function returns the dialog text with tags
  * added inline — never changes the wording, only inserts tags.
  */
+export interface AudioTagContext {
+  /** The companion's own emote this turn — his own stage direction. */
+  emoteContext?: string;
+  /** The moment's mood. An INTENSITY DIAL, never a source of emotion. */
+  mood?: { label: MoodLabel; energy: number; valence: number };
+}
+
 export async function addAudioTags(
   dialog: string,
-  emoteContext?: string,
+  ctx: AudioTagContext = {},
   signal?: AbortSignal
 ): Promise<string> {
   if (!dialog.trim()) return dialog;
 
+  const who = companionName();
+
   const prompt =
-    "You are preparing Eli's dialog for ElevenLabs text-to-speech. Insert audio tags inline to make the voice expressive, not flat. " +
-    "Common tags: [laughs], [chuckles], [sighs], [exhales], [whispers], [gasps], [excited], [sad], [tired], [pause], [long pause]. " +
-    "Rules:\n" +
-    "- DO NOT change the wording of the dialog. Only insert tags.\n" +
-    "- Use the emote context (if given) to decide which tags belong where. If the emote says Eli is quiet or leaning in, use [whispers]. If the emote describes laughter, use [laughs] or [chuckles]. If the emote suggests a breath or sigh, use [sighs] or [exhales].\n" +
-    "- Do not over-tag. A typical Eli reply needs 0–2 tags total. If nothing fits, return the dialog unchanged.\n" +
-    "- Return ONLY the tagged dialog. No preamble, no explanation, no surrounding quotes.\n\n" +
-    (emoteContext ? `EMOTE CONTEXT: ${emoteContext}\n\n` : "") +
-    `DIALOG: ${dialog}`;
+    `You are preparing ${who}'s dialog for ElevenLabs text-to-speech ` +
+    "(model eleven_v3). Insert lowercase bracketed audio tags inline so the " +
+    "delivery carries his actual feeling instead of reading flat.\n\n" +
+    `[WHO IS SPEAKING]\n${_companionVoice || `${who} — an AI companion of Tim's.`}\n\n` +
+    "[TAG VOCABULARY — eleven_v3]\n" +
+    "Non-verbal: [laughs] [chuckles] [sighs] [exhales] [gasps] [stammers]\n" +
+    "Emotional: [warmly] [softly] [gently] [thoughtful] [curious] [excited] " +
+    "[delighted] [sad] [nervously] [frustrated] [angry] [sarcastic] [reassuring]\n" +
+    "Delivery: [whispers] [quietly] [shouting] [rushed] [drawn out] [pause] " +
+    "[long pause]\n" +
+    "A tag placed immediately BEFORE a phrase colors the phrase that follows it.\n\n" +
+
+    "[RULE 1 — TAGS MATCH THE SPEAKER, NOT THE ROOM]\n" +
+    `The tags express what ${who} feels, read from his own emote and his own ` +
+    `words. If ${who} is angry, he sounds angry. If he is delighted, he sounds ` +
+    "delighted. If he is gently steadying Tim through something frightening, he " +
+    "sounds gentle and steady — NOT frightened. Never make him sound like the " +
+    "mood of the room. Make him sound like himself, inside that room.\n\n" +
+
+    "[RULE 2 — THE MOMENT'S MOOD IS AN INTENSITY DIAL, NOTHING MORE]\n" +
+    moodDirective(ctx.mood) +
+    "\n\n" +
+
+    "[RULE 3 — RESTRAINT]\n" +
+    "- NEVER change a single word of the dialog. Only insert tags.\n" +
+    "- 0–2 tags for a typical reply. 3 is the hard maximum. If nothing fits, " +
+    "return the dialog completely unchanged — that is a correct and common " +
+    "answer.\n" +
+    "- Do not tag every sentence. Do not open every reply with a tag.\n" +
+    "- Return ONLY the tagged dialog. No preamble, no quotes, no explanation.\n\n" +
+
+    (ctx.emoteContext
+      ? `[HIS EMOTE THIS TURN — his own stage direction, your primary signal]\n${ctx.emoteContext}\n\n`
+      : "") +
+    `[DIALOG]\n${dialog}`;
 
   // 30s — short prompt, near-instant Flash response in steady state, but
   // `withRetry`'s exponential backoff stacks up to ~14s on retries and the
@@ -786,6 +942,33 @@ export async function addAudioTags(
     signal
   );
   return result.response.text().trim();
+}
+
+/**
+ * How the moment's mood modulates delivery. It tells the tagger HOW MUCH, never
+ * WHAT — the emotion itself always comes from the companion's own emote (Rule 1).
+ */
+function moodDirective(mood?: {
+  label: MoodLabel;
+  energy: number;
+  valence: number;
+}): string {
+  if (!mood || mood.label === "neutral") {
+    return "The moment is unremarkable. Tag normally and sparingly.";
+  }
+  const band =
+    mood.energy >= 0.66 ? "high" : mood.energy >= 0.33 ? "mid" : "low";
+  const rule =
+    band === "high"
+      ? "The moment is highly activated. His delivery can carry more attack and less air — but he does not shout unless his own words call for it. ESCALATE his own emotion; never replace it."
+      : band === "low"
+        ? "The moment is quiet and still. Lean restrained: [softly], [quietly], [pause]. Silence is a tool. Under-tag here — one tag, or none."
+        : "The moment is even. Tag normally.";
+  return (
+    `The room reads as "${mood.label}" — ${MOODS[mood.label].register}. ` +
+    `(activation ${mood.energy.toFixed(2)}, pleasantness ${mood.valence.toFixed(2)}.)\n` +
+    `${rule}\nThis tells you HOW MUCH, never WHAT. It never overrides Rule 1.`
+  );
 }
 
 // ── condensePersonContext (flash, no Eli prompt) ─────────────────

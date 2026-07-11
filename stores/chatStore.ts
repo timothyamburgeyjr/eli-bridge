@@ -26,6 +26,8 @@ import { identifyFaces, FaceMatch } from "@/people/faceId";
 import { usePeople, Person } from "@/people/PeopleStore";
 import { useCompanions } from "@/session/CompanionTracker";
 import { activePersonality } from "@/session/SessionStore";
+import { useMood } from "@/stores/moodStore";
+import { seedMood } from "@/session/moodHeuristic";
 import { useClarifications } from "@/stores/clarificationStore";
 import { buildPresentAnchor } from "@/session/presentAnchor";
 import { getPersonContext, resetPersonContextCache } from "@/people/personContext";
@@ -946,6 +948,11 @@ export const useChat = create<ChatState>((set, get) => ({
           .all()
           .map((p) => p.name);
 
+        // Provisional mood from the sensors, handed to Gemini as a hint it may
+        // override. The send-path snapshot is richer than the poller's (it has
+        // placeType, weather, barometer), so this is the best seed we ever get.
+        const moodSeed = seedMood(sensorsWithLabels) ?? undefined;
+
         assembled = await assembler.assemble({
           sensors: sensorsWithLabels,
           timDialog: text,
@@ -958,6 +965,7 @@ export const useChat = create<ChatState>((set, get) => ({
           lookupContext,
           currentCompanions,
           rosterNames,
+          moodSeed,
           signal: abortSignal,
         });
       } catch (err) {
@@ -1018,6 +1026,14 @@ export const useChat = create<ChatState>((set, get) => ({
         finalRaw = ambient ? `_(*${ambient}*)_ ${safeBody}` : safeBody;
       }
 
+      // ── Moment Mood ── Gemini's read (the authority) lands here. Feed it to
+      // the store BEFORE stamping the bubbles so both this turn's messages
+      // carry the mood they were actually written in.
+      if (assembled.moodRead) {
+        useMood.getState().observe(assembled.moodRead);
+      }
+      const moodLabel = useMood.getState().label;
+
       const finalizedTim: ChatItem = {
         id: timMsgId,
         from: "tim",
@@ -1026,8 +1042,11 @@ export const useChat = create<ChatState>((set, get) => ({
         dialog: ambientPing ? "" : text ? convertTimAsterisksToEmotes(text) : safeBody,
         raw: finalRaw,
         attachments: pendingTim.attachments,
+        // Stamped, not read live: the chat is a mood diary. Without this, a
+        // storm rolling in would repaint every bright message from an hour ago.
+        moodLabel,
         // presentAnchor populated immediately below — stashed on the bubble
-        // so the chat UI can render exactly what Eli received for this turn.
+        // so the chat UI can render exactly what the companion received.
       };
 
       // ── Companion delta application + PRESENT anchor build ──
@@ -1246,8 +1265,9 @@ export const useChat = create<ChatState>((set, get) => ({
           dialog: eliParsed.body || eliParsed.raw,
           raw: eliParsed.raw,
           // Stamped at creation so scrollback keeps the right face and color
-          // even after the session moves on to a different companion.
+          // even after the session moves on to a different companion / mood.
           personality: persona.key,
+          moodLabel: useMood.getState().label,
         };
         set({
           messages: [...get().messages, eliMsg],
@@ -1280,7 +1300,7 @@ export const useChat = create<ChatState>((set, get) => ({
           },
         });
         useTimeline.getState().append({
-          kind: "eli-replied",
+          kind: "ai-replied",
           icon: "💬",
           level: "info",
           subsystem: "kindroid",

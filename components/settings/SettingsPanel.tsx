@@ -57,6 +57,23 @@ export function SettingsPanel({ visible, onClose, onPeoplePress, onDiagnosticsPr
       ],
     },
     {
+      heading: "Moment Mood",
+      toggles: [
+        {
+          key: "moodEnabled",
+          icon: "🌗",
+          label: "Mood border & badge",
+          hint: "Reads the mood of the moment from place, weather, and conversation. Pulses a color around the app.",
+        },
+        {
+          key: "moodTintsEmotes",
+          icon: "🎨",
+          label: "Tint emote text",
+          hint: "Colors each emote with the mood it was written in.",
+        },
+      ],
+    },
+    {
       heading: "People",
       link: {
         icon: "👥",

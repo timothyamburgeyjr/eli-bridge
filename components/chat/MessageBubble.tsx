@@ -13,6 +13,7 @@ import { Pill } from "@/components/common/PillButton";
 import { PersonaAvatar } from "@/components/common/PersonaAvatar";
 import { useActivePersonality } from "@/session/SessionStore";
 import { FormattedBody } from "./FormattedBody";
+import type { MoodLabel } from "@/constants/moods";
 import { useAudio } from "@/stores/audioStore";
 import { PhotoLookupModal } from "./PhotoLookupModal";
 import { FORMAT_DIRECTIVE } from "@/services/kindroid";
@@ -58,6 +59,8 @@ interface TimProps {
    * bubbles persisted before this field existed.
    */
   presentAnchor?: string;
+  /** Mood this message was written in — colors its emote text. */
+  moodLabel?: MoodLabel;
 }
 
 export function TimBubble({
@@ -71,6 +74,7 @@ export function TimBubble({
   failed,
   attachments,
   presentAnchor,
+  moodLabel,
 }: TimProps) {
   const who = useCompanionName();
   const body = raw ?? composeRaw(emote, dialog);
@@ -119,7 +123,9 @@ export function TimBubble({
             },
           ]}
         >
-          {body.trim().length > 0 ? <FormattedBody text={body} /> : null}
+          {body.trim().length > 0 ? (
+            <FormattedBody text={body} moodLabel={moodLabel} />
+          ) : null}
           {images.length > 0 && (
             <View style={[styles.imageStack, body.trim().length > 0 && { marginTop: 8 }]}>
               {images.map((img, i) => (
@@ -218,6 +224,7 @@ export function TimBubble({
 
 interface AiProps {
   id: string;
+  moodLabel?: MoodLabel;
   emote?: string;
   dialog: string;
   raw?: string;
@@ -225,7 +232,7 @@ interface AiProps {
   isDrive?: boolean;
 }
 
-export function AiBubble({ id, emote, dialog, raw, time, isDrive }: AiProps) {
+export function AiBubble({ id, emote, dialog, raw, time, isDrive, moodLabel }: AiProps) {
   const body = raw ?? composeRaw(emote, dialog);
   const persona = useActivePersonality();
   const bubbleBg = persona?.bubble ?? C.eliBubble;
@@ -292,7 +299,7 @@ export function AiBubble({ id, emote, dialog, raw, time, isDrive }: AiProps) {
             },
           ]}
         >
-          <FormattedBody text={body} />
+          <FormattedBody text={body} moodLabel={moodLabel} />
           <View style={styles.aiFooter}>
             <Text style={{ fontSize: 10, color: C.muted }}>
               {footerIcon} {persona?.shortName ?? "Reply"} · {time}

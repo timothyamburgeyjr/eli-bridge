@@ -1,8 +1,10 @@
-import React from "react";
+import React, { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
 import { PersonaAvatar } from "@/components/common/PersonaAvatar";
 import { StatusIndicator } from "@/components/common/StatusIndicator";
+import { MoodBadge } from "@/components/mood/MoodBadge";
+import { MoodSheet } from "@/components/mood/MoodSheet";
 import { useActivePersonality } from "@/session/SessionStore";
 import { useMode } from "@/stores/modeStore";
 import { useConnection } from "@/stores/connectionStore";
@@ -44,6 +46,7 @@ export function SessionHeader({
   onSettingsPress,
 }: Props) {
   const persona = useActivePersonality();
+  const [moodSheetOpen, setMoodSheetOpen] = useState(false);
   const conversation = useMode((s) => s.conversation);
   const enterConversationManual = useMode((s) => s.enterConversationManual);
   const exitConversation = useMode((s) => s.exitConversation);
@@ -113,13 +116,17 @@ export function SessionHeader({
             <Text style={styles.title}>
               {persona ? `${persona.shortName}'s Bridge` : "The Bridge"}
             </Text>
-            <Pressable
-              onPress={() => useConnection.getState().refresh()}
-              hitSlop={6}
-              style={{ marginTop: 2 }}
-            >
-              <StatusIndicator status={effectiveStatus} label={effectiveLabel} />
-            </Pressable>
+            {/* Status + mood live on one row under the title. A fourth sibling
+                in topStrip would squeeze the title on narrow phones. */}
+            <View style={styles.statusRow}>
+              <Pressable
+                onPress={() => useConnection.getState().refresh()}
+                hitSlop={6}
+              >
+                <StatusIndicator status={effectiveStatus} label={effectiveLabel} />
+              </Pressable>
+              <MoodBadge onPress={() => setMoodSheetOpen(true)} />
+            </View>
           </View>
         </View>
 
@@ -192,11 +199,22 @@ export function SessionHeader({
           </Text>
         </Pressable>
       </View>
+
+      <MoodSheet
+        visible={moodSheetOpen}
+        onClose={() => setMoodSheetOpen(false)}
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  statusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 2,
+  },
   topStrip: {
     flexDirection: "row",
     alignItems: "center",

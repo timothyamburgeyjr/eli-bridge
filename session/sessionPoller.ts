@@ -15,6 +15,9 @@ import { useChat } from "@/stores/chatStore";
 import { useAudio } from "@/stores/audioStore";
 import { useTimeline } from "@/stores/timelineStore";
 import { useQuick } from "@/stores/quickStore";
+import { useMood } from "@/stores/moodStore";
+import { seedMood } from "@/session/moodHeuristic";
+import { readBarometer } from "@/services/sensors";
 
 /**
  * Background poller. One GPS fix every POLL_INTERVAL_MS, fed into:
@@ -53,6 +56,7 @@ const BANNER_REGEOCODE_DISTANCE_M = 100;
 let bannerGeocodeCache: {
   fix: { lat: number; lon: number };
   placeName: string | null;
+  placeType: string | null;
 } | null = null;
 
 // Timeline-event location dedupe: the live banner re-geocodes once every
@@ -110,6 +114,11 @@ async function tick() {
 
     await updateLiveContext(loc, snapshot);
 
+    // Moment Mood: seed from sensors every tick so the border moves even
+    // when Tim isn't talking — night falls, the weather turns, he walks up
+    // to a coaster. Gemini confirms or overrides on the next message.
+    await seedMoodFromSensors(loc, snapshot);
+
     // Quick Messages used to be background-generated here. They are now
     // on-demand per-category — the popup fires the Gemini call when Tim
     // taps a category. See stores/quickStore.ts.
@@ -150,6 +159,51 @@ function runStuckStateWatchdog(): void {
         `TTS generation stuck >${Math.round(STUCK_GENERATING_MS / 1000)}s`
       );
     }
+  }
+}
+
+/**
+ * Enrich the poller's thin snapshot (location + activity) with the two signals
+ * the mood heuristic leans on hardest, then feed it to the store.
+ *
+ * Both additions are cheap by design: getCurrentWeather is cached 5min/500m,
+ * and the barometer is a local sensor read. The placeType comes from the same
+ * geocode cache the live-context banner already populated this tick, so this
+ * costs no extra Places call.
+ */
+async function seedMoodFromSensors(
+  loc: LocationData,
+  snapshot: SensorSnapshot
+): Promise<void> {
+  try {
+    const enriched: SensorSnapshot = { ...snapshot };
+
+    if (bannerGeocodeCache?.placeType && enriched.location) {
+      enriched.location = {
+        ...enriched.location,
+        placeType: bannerGeocodeCache.placeType,
+        placeName: bannerGeocodeCache.placeName ?? enriched.location.placeName,
+      };
+    }
+
+    try {
+      const w = await getCurrentWeather(loc.latitude, loc.longitude);
+      if (w) enriched.weather = w;
+    } catch {
+      // best-effort
+    }
+
+    const baro = readBarometer();
+    if (baro) enriched.barometer = baro;
+
+    const reading = seedMood(enriched);
+    const mood = useMood.getState();
+    if (reading) mood.observe(reading);
+    // Always tick — decay has to run on the quiet ticks too, or an ominous
+    // read from an hour ago outlives the storm that caused it.
+    mood.tick();
+  } catch {
+    // Mood is never load-bearing. Swallow and try again next tick.
   }
 }
 
@@ -200,15 +254,18 @@ async function getCachedPlaceName(loc: LocationData): Promise<string | null> {
   }
 
   let placeName: string | null = null;
+  let placeType: string | null = null;
   try {
     const place = await reverseGeocode(loc.latitude, loc.longitude);
     placeName = place?.name ?? null;
+    placeType = place?.placeType ?? null;
   } catch {
     placeName = null;
   }
   bannerGeocodeCache = {
     fix: { lat: loc.latitude, lon: loc.longitude },
     placeName,
+    placeType,
   };
   return placeName;
 }

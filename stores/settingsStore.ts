@@ -9,7 +9,9 @@ export type SettingsToggleKey =
   | "ambientAudioEnabled"
   | "calendarEnabled"
   | "nowPlayingEnabled"
-  | "voiceVerification";
+  | "voiceVerification"
+  | "moodEnabled"
+  | "moodTintsEmotes";
 
 export interface SettingsState {
   locationEnabled: boolean;
@@ -20,6 +22,11 @@ export interface SettingsState {
   nowPlayingEnabled: boolean;
 
   voiceVerification: boolean;
+
+  /** Moment Mood: the pulsing border + badge. */
+  moodEnabled: boolean;
+  /** Let the mood color emote text as well as the chrome. */
+  moodTintsEmotes: boolean;
 
   toggle: (key: SettingsToggleKey) => void;
   set: <K extends SettingsToggleKey>(key: K, value: boolean) => void;
@@ -61,6 +68,9 @@ export const useSettings = create<SettingsState>()(
 
       voiceVerification: true,
 
+      moodEnabled: true,
+      moodTintsEmotes: true,
+
       toggle: (key) => set((s) => ({ [key]: !s[key] } as Partial<SettingsState>)),
       set: (key, value) => set({ [key]: value } as Partial<SettingsState>),
     }),
@@ -75,6 +85,8 @@ export const useSettings = create<SettingsState>()(
         calendarEnabled: s.calendarEnabled,
         nowPlayingEnabled: s.nowPlayingEnabled,
         voiceVerification: s.voiceVerification,
+        moodEnabled: s.moodEnabled,
+        moodTintsEmotes: s.moodTintsEmotes,
       }),
     }
   )

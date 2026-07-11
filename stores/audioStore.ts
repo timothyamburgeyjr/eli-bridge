@@ -6,6 +6,7 @@ import { synthesizeToFile } from "@/services/elevenlabs";
 import { useRecovery } from "@/stores/recoveryStore";
 import { useTimeline } from "@/stores/timelineStore";
 import { activePersonality } from "@/session/SessionStore";
+import { moodForApply } from "@/stores/moodStore";
 import {
   currentAbortSignal,
   currentGeneration,
@@ -209,7 +210,11 @@ export const useAudio = create<AudioState>((set, get) => ({
       }
 
       const emoteContext = extractEmoteContext(rawMessage);
-      const tagged = await addAudioTags(dialog, emoteContext, abortSignal);
+      const tagged = await addAudioTags(
+        dialog,
+        { emoteContext, mood: moodForApply() },
+        abortSignal
+      );
       if (isStaleGeneration(myGen)) return;
       const path = await synthesizeToFile(tagged, messageId, {
         voiceId: persona.elevenVoiceId,

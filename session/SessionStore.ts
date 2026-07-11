@@ -16,6 +16,7 @@ import { useCompanions } from "@/session/CompanionTracker";
 import { useClarifications } from "@/stores/clarificationStore";
 import { useMode } from "@/stores/modeStore";
 import { useTimeline } from "@/stores/timelineStore";
+import { useMood } from "@/stores/moodStore";
 import type { ChatItem } from "@/components/chat/ChatStream";
 import {
   getPersonality,
@@ -178,6 +179,8 @@ export const useSession = create<SessionState>((set, get) => ({
     // session don't bleed over.
     useCompanions.getState().reset();
     useClarifications.getState().skipAll();
+    // Mood is the weather of ONE outing. It does not carry over.
+    useMood.getState().reset();
 
     // Fresh timeline per session — diagnostic history from the previous
     // session lives on disk only via the prior export (if any).
@@ -213,7 +216,7 @@ export const useSession = create<SessionState>((set, get) => ({
     // leave the last companion's identity in Gemini's system prompt — so
     // switching from Eli to Jeff on a bad connection would have Gemini writing
     // Jeff's emotes out of Eli's biography.
-    setSessionContext("", persona.shortName);
+    setSessionContext("", persona.shortName, "");
 
     // Persona → prepended to the Gemini system prompt for this session.
     // Fire-and-forget; a failure or hang here just means Gemini works from the
@@ -224,9 +227,10 @@ export const useSession = create<SessionState>((set, get) => ({
         return;
       }
       try {
-        const { text, loaded, missing } = await loadPersona(persona);
+        const { text, responseDirective, loaded, missing } =
+          await loadPersona(persona);
         if (text) {
-          setSessionContext(text, persona.shortName);
+          setSessionContext(text, persona.shortName, responseDirective);
           set({ biographyLoaded: true });
           console.log(
             `[session] persona loaded for ${persona.shortName} ` +
@@ -276,6 +280,7 @@ export const useSession = create<SessionState>((set, get) => ({
     stopSessionPoll();
     useMode.getState().exitConversation();
     useMode.getState().exitVenue();
+    useMood.getState().reset();
 
     try {
       const journal = await buildJournal(
@@ -329,6 +334,7 @@ export const useSession = create<SessionState>((set, get) => ({
     stopSessionPoll();
     useMode.getState().exitConversation();
     useMode.getState().exitVenue();
+    useMood.getState().reset();
     set({
       status: "idle",
       sessionId: null,

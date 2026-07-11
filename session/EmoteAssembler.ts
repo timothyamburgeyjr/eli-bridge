@@ -4,6 +4,8 @@ import { assembleEmote, condenseEmote, ParsedMessage } from "@/services/gemini";
 import { snapshotToText } from "./sensorStub";
 import { FreshnessLedger } from "./FreshnessLedger";
 import { CONFIG } from "@/constants/config";
+import { seedToHint } from "./moodHeuristic";
+import type { MoodReading } from "@/constants/moods";
 
 export interface AssembleOptions {
   sensors: SensorSnapshot;
@@ -48,6 +50,14 @@ export interface AssembleOptions {
    * "no fabrication" rule from briefing doesn't suppress its use.
    */
   lookupContext?: string;
+  /**
+   * Provisional mood read from the sensor heuristic. Passed as its own option
+   * rather than as a SensorSnapshot field ON PURPOSE: FreshnessLedger.filter()
+   * runs before snapshotToText, so a seed stored as a sensor value would get
+   * suppressed for being "unchanged" — exactly backwards. Gemini needs the hint
+   * on every call, and the ledger has no business suppressing it.
+   */
+  moodSeed?: MoodReading;
   /**
    * Abort signal — propagated into both the assembleEmote and condenseEmote
    * Gemini calls so a user-triggered abort short-circuits the deadline race
@@ -106,6 +116,11 @@ export class EmoteAssembler {
         `irrelevant to what Tim said this turn, drop it — but if it fits, ` +
         `USE it.]\n${opts.lookupContext}\n\n${snapshotText}`;
     }
+    if (opts.moodSeed) {
+      // Appended, not prepended — this is a hint about register, not a fact
+      // about the world, and it must not outrank the scene above it.
+      snapshotText = `${snapshotText}\n${seedToHint(opts.moodSeed)}`;
+    }
 
     let parsed = await assembleEmote({
       sensorSnapshot: snapshotText,
@@ -125,14 +140,15 @@ export class EmoteAssembler {
       const capped = trimmed.length > CONFIG.EMOTE_CHAR_CAP
         ? trimmed.slice(0, CONFIG.EMOTE_CHAR_CAP).trim()
         : trimmed;
+      // Spread the original FIRST so every parsed field survives, then override
+      // only what condensation actually changed. The previous version rebuilt
+      // this object field-by-field, which meant any new field on ParsedMessage
+      // was silently dropped on the over-budget path — and an over-budget emote
+      // is exactly the emotionally-loaded moment you most want the mood for.
       parsed = {
+        ...parsed,
         leadingEmote: capped,
-        body: parsed.body,
         raw: `_(*${capped}*)_ ${parsed.body}`.trim(),
-        // Preserve the companion delta across condensation — condenseEmote
-        // only trims the leading emote text; the delta inference is still
-        // valid for this turn.
-        companionDelta: parsed.companionDelta,
       };
     }
 
