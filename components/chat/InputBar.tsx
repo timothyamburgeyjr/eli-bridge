@@ -8,6 +8,7 @@ import {
   VOICE_RECORDING_PRESET,
 } from "@/services/audio";
 import { useChat } from "@/stores/chatStore";
+import { useCompanionName } from "@/session/SessionStore";
 
 interface Props {
   /** Tap the 📍 pin → open the place-picker so Tim can attach a Save Place. */
@@ -51,6 +52,7 @@ export function InputBar({
   onPhotoTap,
   onVideoTap,
 }: Props) {
+  const who = useCompanionName();
   const [text, setText] = useState("");
   const [recording, setRecording] = useState(false);
   const [permissionError, setPermissionError] = useState<string | null>(null);
@@ -143,7 +145,7 @@ export function InputBar({
           <TextInput
             value={text}
             onChangeText={setText}
-            placeholder="Message Eli…"
+            placeholder={`Message ${who}…`}
             placeholderTextColor={C.muted}
             multiline
             style={styles.input}

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, Image, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
+import { useCompanionName } from "@/session/SessionStore";
 
 interface Props {
   msg: {
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function SceneCard({ msg }: Props) {
+  const who = useCompanionName();
   const [expanded, setExpanded] = useState(false);
   const photos = msg.photoPaths ?? [];
   const hasText = !!msg.richText;
@@ -51,7 +53,7 @@ export function SceneCard({ msg }: Props) {
         <View style={styles.statusRow}>
           <View style={[styles.statusDot, { backgroundColor: C.green }]} />
           <Text style={styles.statusText}>
-            Eli's backdrop updated. Next message will use this scene.
+            {`${who}'s backdrop updated. Next message will use this scene.`}
           </Text>
         </View>
       </View>

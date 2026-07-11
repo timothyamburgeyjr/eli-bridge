@@ -10,11 +10,13 @@ import {
 } from "react-native";
 import { C } from "@/constants/theme";
 import { Pill } from "@/components/common/PillButton";
-import { EliAvatar } from "@/components/common/EliAvatar";
+import { PersonaAvatar } from "@/components/common/PersonaAvatar";
+import { useActivePersonality } from "@/session/SessionStore";
 import { FormattedBody } from "./FormattedBody";
 import { useAudio } from "@/stores/audioStore";
 import { PhotoLookupModal } from "./PhotoLookupModal";
 import { FORMAT_DIRECTIVE } from "@/services/kindroid";
+import { useCompanionName } from "@/session/SessionStore";
 
 interface ContextPill {
   icon: string;
@@ -70,6 +72,7 @@ export function TimBubble({
   attachments,
   presentAnchor,
 }: TimProps) {
+  const who = useCompanionName();
   const body = raw ?? composeRaw(emote, dialog);
   const dimmed = queued || failed;
   const images = (attachments ?? []).filter((a) => a.type === "image");
@@ -87,7 +90,7 @@ export function TimBubble({
         )}
         {showAnchors && (
           <View style={styles.anchorBlock}>
-            <Text style={styles.anchorLabel}>Prepended to Eli:</Text>
+            <Text style={styles.anchorLabel}>{`Prepended to ${who}:`}</Text>
             <Text style={styles.anchorDirective} numberOfLines={2}>
               {FORMAT_DIRECTIVE}
             </Text>
@@ -213,7 +216,7 @@ export function TimBubble({
   );
 }
 
-interface EliProps {
+interface AiProps {
   id: string;
   emote?: string;
   dialog: string;
@@ -222,14 +225,16 @@ interface EliProps {
   isDrive?: boolean;
 }
 
-export function EliBubble({ id, emote, dialog, raw, time, isDrive }: EliProps) {
+export function AiBubble({ id, emote, dialog, raw, time, isDrive }: AiProps) {
   const body = raw ?? composeRaw(emote, dialog);
+  const persona = useActivePersonality();
+  const bubbleBg = persona?.bubble ?? C.eliBubble;
   const entry = useAudio((s) => s.cache[id]);
-  const playEli = useAudio((s) => s.playEli);
+  const playAi = useAudio((s) => s.playAi);
   const status = entry?.status ?? "idle";
 
   const handlePress = () => {
-    playEli(id, body);
+    playAi(id, body);
   };
 
   // Button visual state
@@ -269,7 +274,7 @@ export function EliBubble({ id, emote, dialog, raw, time, isDrive }: EliProps) {
 
   return (
     <View style={[styles.row, { alignItems: "flex-end", gap: 8, opacity: isDrive ? 0.7 : 1, marginBottom: isDrive ? 14 : 20 }]}>
-      <EliAvatar size={28} fontSize={12} />
+      <PersonaAvatar personality={persona} size={28} fontSize={12} />
       <View style={{ maxWidth: "78%", gap: 4 }}>
         {isDrive && (
           <Text style={{ fontSize: 9, color: C.muted }}>🔊 Played aloud through speaker · Drive Mode</Text>
@@ -278,7 +283,7 @@ export function EliBubble({ id, emote, dialog, raw, time, isDrive }: EliProps) {
           style={[
             styles.bubble,
             {
-              backgroundColor: isDrive ? C.eliBubble + "99" : C.eliBubble,
+              backgroundColor: isDrive ? bubbleBg + "99" : bubbleBg,
               borderColor: isDrive ? C.border + "55" : C.border,
               borderTopLeftRadius: 4,
               borderTopRightRadius: 18,
@@ -288,9 +293,9 @@ export function EliBubble({ id, emote, dialog, raw, time, isDrive }: EliProps) {
           ]}
         >
           <FormattedBody text={body} />
-          <View style={styles.eliFooter}>
+          <View style={styles.aiFooter}>
             <Text style={{ fontSize: 10, color: C.muted }}>
-              {footerIcon} Eli · {time}
+              {footerIcon} {persona?.shortName ?? "Reply"} · {time}
             </Text>
             <Pressable
               onPress={handlePress}
@@ -348,7 +353,7 @@ const styles = StyleSheet.create({
   },
   pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 8 },
   timestamp: { fontSize: 10, color: C.muted, paddingRight: 4 },
-  eliFooter: {
+  aiFooter: {
     marginTop: 8,
     flexDirection: "row",
     alignItems: "center",

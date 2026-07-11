@@ -9,7 +9,8 @@ import { logApiCall } from "@/session/diagnosticLog";
 let _genAI: GoogleGenerativeAI | null = null;
 let _flash: GenerativeModel | null = null;
 let _pro: GenerativeModel | null = null;
-let _systemPromptExtras = ""; // prepended: wisdom index + last archive
+let _systemPromptExtras = ""; // prepended: the session's persona block
+let _companionName = "the companion"; // set per session by setSessionContext
 
 function genAI(): GoogleGenerativeAI {
   if (!_genAI) _genAI = new GoogleGenerativeAI(requireEnv("GEMINI_API_KEY"));
@@ -43,14 +44,28 @@ function pro(): GenerativeModel {
 }
 
 /**
- * Prepend Wisdom Index + last-session archive to the system prompt.
- * Call on session start, before any assembleEmote invocation.
- * Resets cached model instances so the new system instruction takes effect.
+ * Prepend the session's persona block to the system prompt, and record who Tim
+ * is talking to so the runtime-built prompts below can name them.
+ *
+ * Call on session start, before any assembleEmote invocation. Resets the cached
+ * model instances so the new system instruction takes effect.
+ *
+ * `companion` is a plain string rather than a Personality so this service stays
+ * free of a SessionStore import — SessionStore already imports from here.
  */
-export function setSessionContext(extras: string) {
+export function setSessionContext(extras: string, companion?: string) {
   _systemPromptExtras = extras.trim();
+  if (companion) _companionName = companion;
   _flash = null;
   _pro = null;
+}
+
+/**
+ * Who Tim is talking to. Falls back to a neutral noun outside a session (or if
+ * the persona load failed), which reads correctly in every prompt below.
+ */
+function companionName(): string {
+  return _companionName;
 }
 
 // ── Retry wrapper ────────────────────────────────────────────────
@@ -217,16 +232,17 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
     : "";
 
   // Output-scope guardrail. Without this, Flash will sometimes pattern-
-  // complete into Eli's response — especially when chat history shows
-  // alternating Tim/Eli turns and the input is audio. The symptom: Tim's
+  // complete into the companion's response — especially when chat history shows
+  // alternating Tim/companion turns and the input is audio. The symptom: Tim's
   // bubble on-device contains transcribed speech followed by bonus emotes
-  // addressed TO Tim ("I think so too, Tim. A lot."), which is Eli
+  // addressed TO Tim ("I think so too, Tim. A lot."), which is the companion
   // hallucinated by Flash and mis-attributed as part of Tim's outgoing
-  // message. Eli's replies come from Kindroid, never from Flash.
+  // message. The companion's replies come from Kindroid, never from Flash.
   //
   // The COMPANION_DELTA tail is the one explicit exception — it's a small
   // structured suffix Flash appends AFTER the dialog, parsed by
   // parseAssembledMessage and stripped before the message reaches Kindroid.
+  const who = companionName();
   const outputScope =
     "\n\n[OUTPUT SCOPE — STRICT]\n" +
     "Your response must consist EXCLUSIVELY of Tim's outgoing message: " +
@@ -234,16 +250,16 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
     "(transcribed from audio or taken from TIM'S INPUT), with optional " +
     "inline tonal-shift emotes INSIDE Tim's speech. Then — ALWAYS — the " +
     "[COMPANION_DELTA] tail described below. That's the entire output. " +
-    "DO NOT generate Eli's response, Eli's emotes, any dialog addressed TO Tim, " +
-    "or any continuation of the conversation. You are the bridge layer; Eli's " +
-    "replies are generated downstream by Kindroid, not by you.";
+    `DO NOT generate ${who}'s response, ${who}'s emotes, any dialog addressed ` +
+    `TO Tim, or any continuation of the conversation. You are the bridge layer; ` +
+    `${who}'s replies are generated downstream by Kindroid, not by you.`;
 
   const rosterLine = input.rosterNames?.length
     ? `Known people in Tim's roster (resolve names against these — "Henry" probably means "Hank" if "Hank" is in the roster): ${input.rosterNames.join(", ")}.\n`
     : "";
   const currentLine = input.currentCompanions?.length
-    ? `Currently understood to be present with Tim (besides Eli): ${input.currentCompanions.join(", ")}.\n`
-    : `No one else is currently understood to be present — it's just Tim (and Eli on the bridge).\n`;
+    ? `Currently understood to be present with Tim (besides ${who}): ${input.currentCompanions.join(", ")}.\n`
+    : `No one else is currently understood to be present — it's just Tim (and ${who} on the bridge).\n`;
 
   // Companion inference instruction. Lives in the prompt as a separate
   // STRUCTURED-OUTPUT block so Flash treats the JSON tail as a discrete
@@ -264,7 +280,7 @@ export async function assembleEmote(input: AssembleEmoteInput): Promise<ParsedMe
     "- Resolve names against the roster when possible — if Tim says \"Henry\" and the roster has \"Hank\", emit \"Hank\" in `added`, not \"Henry\".\n" +
     "- When Tim mentions someone but it's unclear if they're physically present (first mention without arrival context, or roster name that's close but not exact), put them in `ambiguous` with a one-line `hint` explaining the uncertainty. Do NOT add them to `added`. Tim will be asked to confirm via a popup.\n" +
     "- When nothing changes this turn, emit `{\"added\": [], \"removed\": [], \"ambiguous\": []}` — never omit the tail.\n" +
-    "- Tim and Eli are ALWAYS implied present. Never include either of them in any of the three lists.\n\n" +
+    `- Tim and ${who} are ALWAYS implied present. Never include either of them in any of the three lists.\n\n` +
     "Example tail (one person joins, nothing else):\n" +
     "[COMPANION_DELTA]\n" +
     "{\"added\": [\"Hank\"], \"removed\": [], \"ambiguous\": []}";
@@ -544,7 +560,7 @@ export async function generateQuickMessagesForCategory(
     "- Generate exactly " + count + " messages.\n" +
     "- DO NOT repeat topics from chat history.\n" +
     "- DO NOT mention Tim by name (he IS Tim).\n" +
-    "- DO NOT mention Eli's name in body (it's understood).\n\n" +
+    `- DO NOT mention ${companionName()}'s name in body (it's understood).\n\n` +
     "Respond as a single JSON object with key `suggestions` holding an " +
     "array. Each entry: { icon, label, body }. No preamble, no markdown " +
     "fence, just the JSON object.\n\n" +
@@ -664,7 +680,7 @@ export async function draftJournal(sessionSummary: string): Promise<string> {
  *
  * Used on operations that block UI transitions where waiting forever is
  * worse than a fallback message — notably draftJournal on session end and
- * the abort-button-driven cancellation path for sendMessage / playEli.
+ * the abort-button-driven cancellation path for sendMessage / playAi.
  */
 function withDeadline<T>(
   promise: Promise<T>,
@@ -795,17 +811,18 @@ export interface PersonContextInput {
 /**
  * Condense a person's full Obsidian page into the 2–3 most contextually
  * relevant facts for the current session. Runs on a flash model WITHOUT the
- * Eli system prompt — this is pure summarization, not emote assembly.
+ * Bridge system prompt — this is pure summarization, not emote assembly.
  */
 export async function condensePersonContext(
   input: PersonContextInput
 ): Promise<string> {
   const limit = input.charLimit ?? 180;
+  const who = companionName();
   const prompt =
-    `You are helping Eli — an AI companion — feel present in Tim's real life. ` +
+    `You are helping ${who} — an AI companion — feel present in Tim's real life. ` +
     `Given a profile page for someone Tim is with right now, pick the 2–3 most ` +
     `contextually relevant facts about them for this specific moment. Avoid ` +
-    `dumping biography; pick what would shape how Eli understands this encounter. ` +
+    `dumping biography; pick what would shape how ${who} understands this encounter. ` +
     `Return ONLY a compact phrase ≤${limit} characters, no lead-in, no quotes, ` +
     `no markdown.\n\n` +
     `[PERSON]\nName: ${input.name}\n` +

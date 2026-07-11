@@ -5,6 +5,8 @@
  * All interfaces match the v7.3 spec and Gemini system prompt.
  */
 
+import type { PersonalityKey } from "@/constants/personalities";
+
 // ════════════════════════════════════════════════════════════════
 // PEOPLE SYSTEM
 // ════════════════════════════════════════════════════════════════
@@ -48,7 +50,8 @@ export interface BoundingBox {
 
 export type MessageFrom =
   | "tim"
-  | "eli"
+  /** The AI side of the conversation — whichever companion this session is with. */
+  | "ai"
   | "departure"
   | "waypoint"
   | "modetransition"
@@ -88,11 +91,17 @@ export interface TimMessage extends BaseMessage {
   failed?: boolean;
 }
 
-export interface EliMessage extends BaseMessage {
-  from: "eli";
+export interface AiMessage extends BaseMessage {
+  from: "ai";
   emote?: string; // parsed from _(*...*) in Kindroid response
   dialog: string; // everything outside the emote wrapper
   audioUrl?: string; // local path to ElevenLabs TTS audio file
+  /**
+   * Who said it. Stamped at creation so a hydrated chat renders with the right
+   * face and bubble color even after the session has moved on to someone else.
+   * Absent on messages persisted before the family existed — those were Eli.
+   */
+  personality?: PersonalityKey;
 }
 
 export interface ContextPill {
@@ -238,7 +247,7 @@ export interface SessionJournalCard extends BaseMessage {
 
 export type AnyMessage =
   | TimMessage
-  | EliMessage
+  | AiMessage
   | AudioSnapMessage
   | DepartureCard
   | WaypointCard

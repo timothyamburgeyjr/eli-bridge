@@ -13,7 +13,7 @@ export const DET_MESSAGES: ChatItem[] = [
     ],
   },
   {
-    id: "det2", from: "eli", time: "7:49 AM",
+    id: "det2", from: "ai", time: "7:49 AM",
     emote: "Armstrong Museum and Michigan weed in the same day. This is the kind of itinerary that could only make sense to Tim.",
     dialog: "Armstrong Museum at 11, dispensary by late afternoon. That's legitimately the most Ohio-to-Michigan road trip imaginable. I'm in. How far to Wapakoneta?",
   },
@@ -37,7 +37,7 @@ export const DET_MESSAGES: ChatItem[] = [
     pills: [{ icon: "🚗", label: "72 mph" }, { icon: "🎙️", label: "Voice" }],
   },
   {
-    id: "det4", from: "eli", time: "9:14 AM", isDrive: true,
+    id: "det4", from: "ai", time: "9:14 AM", isDrive: true,
     emote: "I-75 flat Ohio, Bowie, the quiet anticipation of a museum that's been on the list too long.",
     dialog: "Space Oddity on the way to the Armstrong Museum. You didn't plan that — the day just decided. Good sign.",
   },
@@ -72,7 +72,7 @@ export const DET_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📍", label: "Gemini VIII capsule" }, { icon: "📷", label: "4 photos" }],
   },
   {
-    id: "det6", from: "eli", time: "11:15 AM",
+    id: "det6", from: "ai", time: "11:15 AM",
     emote: "The scorched capsule, the hundreds of switches, two men in seven feet.",
     dialog: "The Gemini program was NASA figuring out how to reach the Moon by actually doing it — docking, spacewalks, long-duration flight. VIII nearly ended Armstrong. The capsule survived because he was the right person in the wrong situation and did everything right.",
   },
@@ -83,7 +83,7 @@ export const DET_MESSAGES: ChatItem[] = [
     pills: [{ icon: "🌙", label: "Moon rock · Apollo 11" }, { icon: "📍", label: "Armstrong Museum" }],
   },
   {
-    id: "det8", from: "eli", time: "11:49 AM",
+    id: "det8", from: "ai", time: "11:49 AM",
     emote: "The moon rock. The unremarkable gray. The billions of years in a case.",
     dialog: "3.7 billion years ago Earth was barely forming. That rock predates complex life on this planet. Armstrong carried a piece of the Wright Brothers' 1903 Flyer to the Moon in his suit pocket.",
   },
@@ -100,7 +100,7 @@ export const DET_MESSAGES: ChatItem[] = [
     pills: [{ icon: "🚗", label: "72 mph" }, { icon: "🎙️", label: "Voice" }],
   },
   {
-    id: "det10", from: "eli", time: "12:39 PM", isDrive: true,
+    id: "det10", from: "ai", time: "12:39 PM", isDrive: true,
     emote: "The nav announcing Gage Cannabis on I-75 after three hours at the Armstrong Museum.",
     dialog: "From one giant leap to Gage Cannabis. Your Tuesday is sequential and I respect every step of it. How long to Detroit from here?",
   },
@@ -123,7 +123,7 @@ export const DET_MESSAGES: ChatItem[] = [
     pills: [{ icon: "🚗", label: "72 mph" }, { icon: "📍", label: "Michigan · 52 mi to Detroit" }],
   },
   {
-    id: "det12", from: "eli", time: "3:22 PM", isDrive: true,
+    id: "det12", from: "ai", time: "3:22 PM", isDrive: true,
     emote: "The sign change, Michigan, the lake invisible but present to the east.",
     dialog: "52 miles. Gage on East Jefferson is on the Detroit riverfront — you'll see Windsor, Ontario across the water. International weed run.",
   },
@@ -149,7 +149,7 @@ export const DET_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📍", label: "Gage Cannabis · Detroit" }, { icon: "🇨🇦", label: "Canada visible" }],
   },
   {
-    id: "det14", from: "eli", time: "4:25 PM",
+    id: "det14", from: "ai", time: "4:25 PM",
     emote: "The dispensary, Jordan's live resin expertise, Canada across the river.",
     dialog: "You drove past Armstrong's birthplace, ate at Klinger's restaurant, and are now buying weed with Canada as the backdrop. Tim, this is actually a perfect road trip. Trust Jordan on the live resin.",
   },

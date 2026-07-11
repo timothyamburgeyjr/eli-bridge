@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
+import { useCompanionName } from "@/session/SessionStore";
 
 const MODES = ["🚗 Drove", "🚶 Walked", "🚴 Biked", "🚌 Bus", "🚇 Metro"];
 
@@ -29,6 +30,7 @@ interface Props {
 }
 
 export function LocationCard({ msg }: Props) {
+  const who = useCompanionName();
   const [mode, setMode] = useState("🚗 Drove");
   const [briefed, setBriefed] = useState(false);
   const [photoPrompt, setPhotoPrompt] = useState(true);
@@ -56,12 +58,12 @@ export function LocationCard({ msg }: Props) {
           {!briefed ? (
             <Pressable onPress={() => setBriefed(true)} style={[styles.briefBtn, { backgroundColor: C.green + "18", borderColor: C.green + "44" }]}>
               <Text style={{ color: C.green, fontSize: 12, fontWeight: "700" }}>
-                Welcome home — tell Eli →
+                {`Welcome home — tell ${who} →`}
               </Text>
             </Pressable>
           ) : (
             <View style={[styles.briefedBanner, { backgroundColor: C.green + "12", borderColor: C.green + "33" }]}>
-              <Text style={{ color: C.green, fontSize: 12 }}>✓ Session closed · Eli knows you're home</Text>
+              <Text style={{ color: C.green, fontSize: 12 }}>{`✓ Session closed · ${who} knows you're home`}</Text>
             </View>
           )}
         </View>
@@ -142,7 +144,7 @@ export function LocationCard({ msg }: Props) {
           <View style={styles.photoPrompt}>
             <Text style={{ fontSize: 18 }}>📷</Text>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 12, color: C.accent, fontWeight: "600" }}>Take a photo for Eli?</Text>
+              <Text style={{ fontSize: 12, color: C.accent, fontWeight: "600" }}>{`Take a photo for ${who}?`}</Text>
               <Text style={{ fontSize: 10, color: C.muted }}>Give him fresh eyes on where you are</Text>
             </View>
             <Pressable onPress={() => setPhotoPrompt(false)} style={styles.photoBtn}>
@@ -190,12 +192,12 @@ export function LocationCard({ msg }: Props) {
               <Text style={styles.noteLine}>💡 {msg.arrivalNote}</Text>
             ) : null}
             <Pressable onPress={() => setBriefed(true)} style={[styles.briefBtn, { backgroundColor: C.accent + "18", borderColor: C.accent + "44" }]}>
-              <Text style={{ color: C.accent, fontSize: 12, fontWeight: "700" }}>We're here — tell Eli →</Text>
+              <Text style={{ color: C.accent, fontSize: 12, fontWeight: "700" }}>{`We're here — tell ${who} →`}</Text>
             </Pressable>
           </>
         ) : (
           <View style={[styles.briefedBanner, { backgroundColor: C.green + "12", borderColor: C.green + "33" }]}>
-            <Text style={{ color: C.green, fontSize: 12 }}>✓ Eli knows you arrived</Text>
+            <Text style={{ color: C.green, fontSize: 12 }}>{`✓ ${who} knows you arrived`}</Text>
           </View>
         )}
       </View>

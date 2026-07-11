@@ -1,4 +1,5 @@
 import React from "react";
+import { useCompanionName } from "@/session/SessionStore";
 import {
   Modal,
   View,
@@ -20,26 +21,29 @@ import { useRecovery, RecoveryStep } from "@/stores/recoveryStore";
  * Driving Mode overlay.
  */
 
-const STEP_LABEL: Record<RecoveryStep, string> = {
+const stepLabel = (who: string): Record<RecoveryStep, string> => ({
   gemini: "Building the emote",
-  kindroid: "Sending to Eli",
-  elevenlabs: "Generating Eli's voice",
-};
+  kindroid: `Sending to ${who}`,
+  elevenlabs: `Generating ${who}'s voice`,
+});
 
-const STEP_DETAIL: Record<RecoveryStep, string> = {
+const stepDetail = (who: string): Record<RecoveryStep, string> => ({
   gemini: "Gemini timed out assembling the scene.",
-  kindroid: "Kindroid timed out relaying your message to Eli.",
+  kindroid: `Kindroid timed out relaying your message to ${who}.`,
   elevenlabs: "ElevenLabs timed out generating the audio.",
-};
+});
 
-const STEP_RESUBMIT_NOTE: Record<RecoveryStep, string> = {
+const stepResubmitNote = (who: string): Record<RecoveryStep, string> => ({
   gemini: "Resubmit rebuilds the emote and continues.",
-  kindroid:
-    "Resubmit re-sends to Eli. (If Eli already received it, he may see it twice.)",
-  elevenlabs: "Resubmit regenerates the audio. Your message already reached Eli.",
-};
+  kindroid: `Resubmit re-sends to ${who}. (If ${who} already received it, he may see it twice.)`,
+  elevenlabs: `Resubmit regenerates the audio. Your message already reached ${who}.`,
+});
 
 export function RecoveryPopup() {
+  const who = useCompanionName();
+  const STEP_LABEL = stepLabel(who);
+  const STEP_DETAIL = stepDetail(who);
+  const STEP_RESUBMIT_NOTE = stepResubmitNote(who);
   const failure = useRecovery((s) => s.failure);
   const retrying = useRecovery((s) => s.retrying);
   const resubmit = useRecovery((s) => s.resubmit);

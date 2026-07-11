@@ -12,6 +12,7 @@ import { C } from "@/constants/theme";
 import { usePeople, Person } from "@/people/PeopleStore";
 import { resolveOrCreateProfilePath } from "@/people/profileLinker";
 import { PersonEnrollModal } from "./PersonEnrollModal";
+import { useCompanionName } from "@/session/SessionStore";
 
 interface Props {
   visible: boolean;
@@ -19,6 +20,7 @@ interface Props {
 }
 
 export function PeopleRoster({ visible, onClose }: Props) {
+  const who = useCompanionName();
   const byId = usePeople((s) => s.byId);
   const removePerson = usePeople((s) => s.removePerson);
   const addPerson = usePeople((s) => s.addPerson);
@@ -157,7 +159,7 @@ export function PeopleRoster({ visible, onClose }: Props) {
           <Text style={styles.footer}>
             Enroll a person by tapping Enroll on their row — samples stay on-device
             and are used only for on-device voice/face identification. Samples
-            taken here are NOT sent to Eli.
+            {`taken here are NOT sent to ${who}.`}
           </Text>
         </ScrollView>
       </View>

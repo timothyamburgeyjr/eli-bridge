@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
+import { useCompanionName } from "@/session/SessionStore";
 
 interface Props {
   msg: {
@@ -14,6 +15,7 @@ interface Props {
 }
 
 export function CalendarCard({ msg }: Props) {
+  const who = useCompanionName();
   const [sent, setSent] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   if (dismissed) return null;
@@ -32,12 +34,12 @@ export function CalendarCard({ msg }: Props) {
           {!sent ? (
             <Pressable onPress={() => setSent(true)} style={styles.sendBtn}>
               <Text style={{ color: C.amber, fontSize: 12, fontWeight: "700" }}>
-                Tell Eli I'm heading in
+                {`Tell ${who} I'm heading in`}
               </Text>
             </Pressable>
           ) : (
             <View style={styles.sentBanner}>
-              <Text style={{ color: C.green, fontSize: 12 }}>✓ Eli knows</Text>
+              <Text style={{ color: C.green, fontSize: 12 }}>{`✓ ${who} knows`}</Text>
             </View>
           )}
           <Pressable onPress={() => setDismissed(true)} style={styles.dismissBtn}>

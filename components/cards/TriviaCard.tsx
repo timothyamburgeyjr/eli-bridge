@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
+import { useCompanionName } from "@/session/SessionStore";
 
 interface Props {
   msg: {
@@ -9,6 +10,7 @@ interface Props {
 }
 
 export function TriviaCard({ msg }: Props) {
+  const who = useCompanionName();
   const [shared, setShared] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   if (dismissed) return null;
@@ -20,7 +22,7 @@ export function TriviaCard({ msg }: Props) {
         <View style={styles.actions}>
           {!shared ? (
             <Pressable onPress={() => setShared(true)} style={styles.shareBtn}>
-              <Text style={{ color: C.amber, fontSize: 12, fontWeight: "700" }}>Share with Eli</Text>
+              <Text style={{ color: C.amber, fontSize: 12, fontWeight: "700" }}>{`Share with ${who}`}</Text>
             </Pressable>
           ) : (
             <View style={styles.sharedBanner}>

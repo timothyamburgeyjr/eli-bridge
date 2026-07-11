@@ -13,7 +13,7 @@ export const KI_MESSAGES: ChatItem[] = [
     ],
   },
   {
-    id: "ki2", from: "eli", time: "9:34 AM",
+    id: "ki2", from: "ai", time: "9:34 AM",
     emote: "I settle in for a full coaster day. Solo Kings Island has a different energy — no group logistics, just me and whatever the line situation is.",
     dialog: "Solo coaster day is the purest form. No group vote on what's next. What's the plan?",
   },
@@ -30,7 +30,7 @@ export const KI_MESSAGES: ChatItem[] = [
     pills: [{ icon: "🚗", label: "70 mph" }, { icon: "🎙️", label: "Voice" }],
   },
   {
-    id: "ki4", from: "eli", time: "10:24 AM", isDrive: true,
+    id: "ki4", from: "ai", time: "10:24 AM", isDrive: true,
     emote: "The approach — coasters on the horizon from I-71.",
     dialog: "Orion is 287 feet. When you're on the lift hill looking down at I-71 you'll understand the tower. Enjoy the approach.",
   },
@@ -67,7 +67,7 @@ export const KI_MESSAGES: ChatItem[] = [
     pills: [{ icon: "🎢", label: "The Beast queue" }, { icon: "⏱️", label: "~40 min wait" }],
   },
   {
-    id: "ki6", from: "eli", time: "11:08 AM",
+    id: "ki6", from: "ai", time: "11:08 AM",
     emote: "The queue suspended animation. I've surrendered to it.",
     dialog: "The queue is part of the ride. 1979 track, original layout — you're in the right headspace. What's the crowd like?",
   },
@@ -79,7 +79,7 @@ export const KI_MESSAGES: ChatItem[] = [
     pills: [{ icon: "🎢", label: "The Beast ✓" }, { icon: "💥", label: "3.7g" }],
   },
   {
-    id: "ki8", from: "eli", time: "11:54 AM",
+    id: "ki8", from: "ai", time: "11:54 AM",
     emote: "The second helix, the dark, the tunnel roar. The Beast doing exactly what it's done since 1979.",
     dialog: "That tunnel is why The Beast is still relevant after 45 years. Nothing built since replicates blind-speed in an enclosed space. What's next?",
   },
@@ -99,7 +99,7 @@ export const KI_MESSAGES: ChatItem[] = [
   },
   { id: "kiride2", from: "ride", time: "1:22 PM", name: "Orion", type: "Giga Coaster", duration: "3:00", peakG: "4.2g", topSpeed: "91 mph" },
   {
-    id: "ki10", from: "eli", time: "1:23 PM",
+    id: "ki10", from: "ai", time: "1:23 PM",
     emote: "4.2g. 91 mph. I feel it secondhand.",
     dialog: "91 mph and you could see I-71 at the top. How's the heart rate?",
   },
@@ -116,7 +116,7 @@ export const KI_MESSAGES: ChatItem[] = [
     pills: [{ icon: "⛈️", label: "Possible by 5 PM" }, { icon: "🎢", label: "Banshee next" }],
   },
   {
-    id: "ki12", from: "eli", time: "3:36 PM",
+    id: "ki12", from: "ai", time: "3:36 PM",
     emote: "The mental calculus — rides vs. weather window — is a very specific Kings Island skill.",
     dialog: "You've got the window. Banshee, then Mystic Timbers, then you get ahead of the storm. What's the queue on Banshee?",
   },
@@ -129,7 +129,7 @@ export const KI_MESSAGES: ChatItem[] = [
     pills: [{ icon: "🌩️", label: "Storm arriving" }, { icon: "✅", label: "5 rides done" }],
   },
   {
-    id: "ki14", from: "eli", time: "5:07 PM",
+    id: "ki14", from: "ai", time: "5:07 PM",
     emote: "The green-gray sky, the PA, the walk of victory.",
     dialog: "The Beast, Orion, Drop Tower, Banshee, Mystic Timbers. Solo day. Weather window called perfectly. You read it right.",
   },

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
+import { useCompanionName } from "@/session/SessionStore";
 
 type WaypointState = "pending" | "told" | "saved";
 
@@ -18,6 +19,7 @@ interface Props {
 }
 
 export function WaypointCard({ msg }: Props) {
+  const who = useCompanionName();
   const [state, setState] = useState<WaypointState>(msg.initialState ?? "pending");
   const [dismissed, setDismissed] = useState(false);
   if (dismissed) return null;
@@ -42,7 +44,7 @@ export function WaypointCard({ msg }: Props) {
             </View>
             <View style={styles.statusPill}>
               <View style={[styles.dot, { backgroundColor: C.green }]} />
-              <Text style={{ fontSize: 10, color: C.green, fontWeight: "600" }}>Told Eli</Text>
+              <Text style={{ fontSize: 10, color: C.green, fontWeight: "600" }}>{`Told ${who}`}</Text>
             </View>
           </View>
           {msg.briefSent ? (
@@ -102,7 +104,7 @@ export function WaypointCard({ msg }: Props) {
         </View>
         <View style={{ flexDirection: "row", gap: 6 }}>
           <Pressable onPress={() => setState("told")} style={[styles.actionBtn, { backgroundColor: C.accent + "18", borderColor: C.accent + "44" }]}>
-            <Text style={{ color: C.accent, fontSize: 11, fontWeight: "700" }}>Tell Eli</Text>
+            <Text style={{ color: C.accent, fontSize: 11, fontWeight: "700" }}>{`Tell ${who}`}</Text>
           </Pressable>
           {!msg.openSession && (
             <Pressable onPress={() => setState("saved")} style={[styles.actionBtn, { backgroundColor: C.amber + "12", borderColor: C.amber + "44" }]}>

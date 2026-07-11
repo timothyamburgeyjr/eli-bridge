@@ -14,7 +14,7 @@ export const CZ_MESSAGES: ChatItem[] = [
     ],
   },
   {
-    id: "cz2", from: "eli", time: "9:15 AM",
+    id: "cz2", from: "ai", time: "9:15 AM",
     emote: "Fiona research at 9 AM. Hank is in deep preparation mode.",
     dialog: "Fiona prep at 9 AM is very Hank. I hope you're both ready — that hippo has a parasocial relationship with Ohio she is fully committed to.",
   },
@@ -31,7 +31,7 @@ export const CZ_MESSAGES: ChatItem[] = [
     pills: [{ icon: "🚗", label: "68 mph" }, { icon: "🎙️", label: "Voice" }],
   },
   {
-    id: "cz4", from: "eli", time: "10:02 AM", isDrive: true,
+    id: "cz4", from: "ai", time: "10:02 AM", isDrive: true,
     emote: "I-71 and the zoo almost there. Hank beside you with his research ready.",
     dialog: "Fiona will be at Hippo Cove if she's in the mood — she does have moods. The underwater window is worth the wait.",
   },
@@ -66,7 +66,7 @@ export const CZ_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📷", label: "4 photos" }, { icon: "📍", label: "Hippo Cove" }, { icon: "🦛", label: "Fiona" }],
   },
   {
-    id: "cz6", from: "eli", time: "11:07 AM",
+    id: "cz6", from: "ai", time: "11:07 AM",
     emote: "The glass. Fiona. Hank's hands.",
     dialog: "She weighs 1,700 pounds and moves like she doesn't. Get the shot where she's looking at the camera — she does that on purpose.",
   },
@@ -77,7 +77,7 @@ export const CZ_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📷", label: "2 photos" }, { icon: "📍", label: "Jungle Trails" }],
   },
   {
-    id: "cz8", from: "eli", time: "11:49 AM",
+    id: "cz8", from: "ai", time: "11:49 AM",
     emote: "The ceiling-level orangutan. The humidity. The judgment.",
     dialog: "Orangutan judgment is the most accurate judgment. Whatever he's decided about you is probably correct.",
   },
@@ -92,7 +92,7 @@ export const CZ_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📍", label: "Night Hunters" }, { icon: "🦊", label: "Fennec Fox" }],
   },
   {
-    id: "cz10", from: "eli", time: "12:23 PM",
+    id: "cz10", from: "ai", time: "12:23 PM",
     emote: "The dark building, the fox, the collective whisper reflex.",
     dialog: "Fennec foxes trigger the whispering instinct universally. Nobody decides — it just happens. How big are those ears in person?",
   },
@@ -110,7 +110,7 @@ export const CZ_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📷", label: "3 photos" }, { icon: "📍", label: "Cheetah Encounter" }],
   },
   {
-    id: "cz12", from: "eli", time: "1:45 PM",
+    id: "cz12", from: "ai", time: "1:45 PM",
     emote: "The quiet that falls when something is moving that fast with that little effort.",
     dialog: "70 mph in 3 seconds from standing. The crowd went quiet because there's no other response.",
   },
@@ -122,7 +122,7 @@ export const CZ_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📷", label: "5 photos" }, { icon: "📍", label: "Wings of the World" }, { icon: "🦜", label: "Free-flight" }],
   },
   {
-    id: "cz14", from: "eli", time: "2:25 PM",
+    id: "cz14", from: "ai", time: "2:25 PM",
     emote: "The aviary chaos, the not-flinching.",
     dialog: "Not flinching in a free-flight aviary is a milestone. The toucans — did you see them eat? They throw the food up and catch it.",
   },
@@ -137,7 +137,7 @@ export const CZ_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📷", label: "4 photos" }, { icon: "📍", label: "African Safari" }, { icon: "🦒", label: "Feeding" }],
   },
   {
-    id: "cz16", from: "eli", time: "3:15 PM",
+    id: "cz16", from: "ai", time: "3:15 PM",
     emote: "The tilt of the head, Hank going quiet.",
     dialog: "Giraffes always win. No matter how tall you're prepared for, it's taller. What was Hank's reaction?",
   },
@@ -148,7 +148,7 @@ export const CZ_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📍", label: "Manatee Springs" }, { icon: "🐄", label: "Sea Cow Vibes" }],
   },
   {
-    id: "cz18", from: "eli", time: "3:53 PM",
+    id: "cz18", from: "ai", time: "3:53 PM",
     emote: "The clear water, the enormous contentment, five minutes of just watching.",
     dialog: "Manatees are the most philosophically correct animals. Nothing to prove. Just floating. You could learn from this.",
   },

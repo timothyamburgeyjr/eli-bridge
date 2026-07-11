@@ -42,7 +42,17 @@ const STALL_TIMEOUT_MS = 20_000;
 const DEFAULT_MODEL = "eleven_v3";
 const DEFAULT_FORMAT = "mp3_44100_64";
 
-const DEFAULT_VOICE_SETTINGS = {
+export interface VoiceSettings {
+  stability: number;
+  similarity_boost: number;
+  style: number;
+  use_speaker_boost: boolean;
+}
+
+// Eli's settings, and the fallback for anyone without an override. Tuned for
+// restraint — he is more likely to go quiet than to go loud. Bigger performers
+// (Bobby, Lilly) want lower stability; see constants/personalities.ts.
+const DEFAULT_VOICE_SETTINGS: VoiceSettings = {
   stability: 0.45,
   similarity_boost: 0.75,
   style: 0.4,
@@ -51,7 +61,14 @@ const DEFAULT_VOICE_SETTINGS = {
 
 export interface SynthesizeOptions {
   model?: string;
-  voiceSettings?: Partial<typeof DEFAULT_VOICE_SETTINGS>;
+  voiceSettings?: Partial<VoiceSettings>;
+}
+
+export interface Voice {
+  /** ElevenLabs voice_id. */
+  voiceId: string;
+  /** Per-voice overrides on DEFAULT_VOICE_SETTINGS. */
+  voiceSettings?: Partial<VoiceSettings>;
 }
 
 /**
@@ -72,18 +89,22 @@ export interface SynthesizeOptions {
 export async function synthesizeToFile(
   text: string,
   cacheKey: string,
+  voice: Voice,
   options: SynthesizeOptions = {}
 ): Promise<string> {
   const apiKey = requireEnv("ELEVENLABS_API_KEY");
-  const voiceId = requireEnv("ELEVENLABS_VOICE_ID");
 
   const url =
-    `${BASE_URL}/text-to-speech/${encodeURIComponent(voiceId)}/stream` +
+    `${BASE_URL}/text-to-speech/${encodeURIComponent(voice.voiceId)}/stream` +
     `?output_format=${DEFAULT_FORMAT}`;
   const body = {
     text,
     model_id: options.model ?? DEFAULT_MODEL,
-    voice_settings: { ...DEFAULT_VOICE_SETTINGS, ...options.voiceSettings },
+    voice_settings: {
+      ...DEFAULT_VOICE_SETTINGS,
+      ...voice.voiceSettings,
+      ...options.voiceSettings,
+    },
   };
 
   const ctl = new AbortController();
@@ -242,7 +263,9 @@ export async function synthesizeToFile(
     offset += c.length;
   }
 
-  const filename = `eli-${cacheKey}.mp3`;
+  // Namespaced by voice: two companions replying to the same messageId would
+  // otherwise collide on one cache file and play back in the wrong voice.
+  const filename = `tts-${voice.voiceId}-${cacheKey}.mp3`;
   const file = new File(Paths.cache, filename);
   try {
     file.delete();

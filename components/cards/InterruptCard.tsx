@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
+import { useCompanionName } from "@/session/SessionStore";
 
 interface Props {
   msg: {
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export function InterruptCard({ msg }: Props) {
+  const who = useCompanionName();
   const [dismissed, setDismissed] = useState(false);
   const [notified, setNotified] = useState(false);
 
@@ -29,7 +31,7 @@ export function InterruptCard({ msg }: Props) {
     return (
       <View style={{ marginBottom: 16 }}>
         <View style={styles.notifiedBanner}>
-          <Text style={{ fontSize: 11, color: C.green }}>✓ Eli notified · {title}</Text>
+          <Text style={{ fontSize: 11, color: C.green }}>{`✓ ${who} notified · ${title}`}</Text>
         </View>
       </View>
     );
@@ -48,7 +50,7 @@ export function InterruptCard({ msg }: Props) {
         <Text style={styles.description}>{description}</Text>
         <View style={{ flexDirection: "row", gap: 8 }}>
           <Pressable onPress={() => setNotified(true)} style={styles.notifyBtn}>
-            <Text style={{ color: C.red, fontSize: 12, fontWeight: "700" }}>Notify Eli</Text>
+            <Text style={{ color: C.red, fontSize: 12, fontWeight: "700" }}>{`Notify ${who}`}</Text>
           </Pressable>
           <Pressable onPress={() => setDismissed(true)} style={styles.dismissBtn}>
             <Text style={{ color: C.muted, fontSize: 12 }}>Dismiss</Text>

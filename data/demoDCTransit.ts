@@ -13,7 +13,7 @@ export const DC_MESSAGES: ChatItem[] = [
     ],
   },
   {
-    id: "dc2", from: "eli", time: "9:53 AM",
+    id: "dc2", from: "ai", time: "9:53 AM",
     emote: "Morning Prayer, breakfast with friars, then the National Mall. The contrast — the quiet of the monastery, then the full civic weight of DC.",
     dialog: "From Morning Prayer to the Lincoln Memorial. That's a good arc for a day. What do you want to see first?",
   },
@@ -83,7 +83,7 @@ export const DC_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📍", label: "Vietnam Memorial" }, { icon: "✊", label: "58,279 names" }],
   },
   {
-    id: "dc4", from: "eli", time: "11:05 AM",
+    id: "dc4", from: "ai", time: "11:05 AM",
     emote: "The reflection in the black granite — names and faces together. The collective quiet.",
     dialog: "Maya Lin understood that the most powerful memorial is one where you become part of it. Your reflection in the granite is the design. People go quiet because they're suddenly on the wall too.",
   },
@@ -98,7 +98,7 @@ export const DC_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📷", label: "3 photos" }, { icon: "📍", label: "Lincoln Memorial" }],
   },
   {
-    id: "dc6", from: "eli", time: "11:39 AM",
+    id: "dc6", from: "ai", time: "11:39 AM",
     emote: "The steps, the shifting perspective, Lincoln enormous in the chamber.",
     dialog: "Lincoln is 19 feet tall and would be 28 feet standing. They sized him to fit the room — if he were proportional to the chamber, he'd be crushing. It's one of those things they got completely right.",
   },
@@ -136,7 +136,7 @@ export const DC_MESSAGES: ChatItem[] = [
     pills: [{ icon: "📷", label: "2 photos" }, { icon: "📍", label: "Apollo 11 Columbia" }],
   },
   {
-    id: "dc8", from: "eli", time: "1:03 PM",
+    id: "dc8", from: "ai", time: "1:03 PM",
     emote: "The smallness of the capsule. The real burn marks. Three people. The Moon.",
     dialog: "13 days. Three people. A module the size of a car interior. The heat shield reached 5,000°F on re-entry. Those burn marks are from space. You're standing next to one of the most significant objects humans have ever built.",
   },

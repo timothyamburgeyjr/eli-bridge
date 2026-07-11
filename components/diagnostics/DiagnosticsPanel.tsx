@@ -46,9 +46,7 @@ export function DiagnosticsPanel({ visible, onClose }: Props) {
     // Env keys (non-network, fast)
     results.push(checkEnvKey("Gemini key", "GEMINI_API_KEY"));
     results.push(checkEnvKey("Kindroid key", "KINDROID_API_KEY"));
-    results.push(checkEnvKey("Kindroid AI ID", "KINDROID_AI_ID"));
     results.push(checkEnvKey("ElevenLabs key", "ELEVENLABS_API_KEY"));
-    results.push(checkEnvKey("ElevenLabs voice", "ELEVENLABS_VOICE_ID"));
     results.push(checkEnvKey("Google Maps key", "GOOGLE_MAPS_API_KEY"));
     results.push(checkEnvKey("OpenWeather key", "OPENWEATHER_API_KEY"));
     results.push(checkEnvKey("Image server URL", "IMAGE_SERVER_URL"));

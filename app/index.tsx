@@ -28,7 +28,10 @@ import { BundleBriefSheet } from "@/components/places/BundleBriefSheet";
 import { bestPlaceType, prettyPlaceType } from "@/services/places";
 import { DiagnosticsPanel } from "@/components/diagnostics/DiagnosticsPanel";
 import { PeopleRoster } from "@/components/people/PeopleRoster";
-import { EliAvatar } from "@/components/common/EliAvatar";
+import { PersonaAvatar } from "@/components/common/PersonaAvatar";
+import { PersonalityPicker } from "@/components/session/PersonalityPicker";
+import type { PersonalityKey } from "@/constants/personalities";
+import { useActivePersonality } from "@/session/SessionStore";
 import { ActivityPermissionBanner } from "@/components/common/ActivityPermissionBanner";
 import { SCENARIOS, getScenario, ScenarioId } from "@/data/scenarios";
 
@@ -46,7 +49,10 @@ export default function Main() {
   const [bundleSheetOpen, setBundleSheetOpen] = useState(false);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const [peopleOpen, setPeopleOpen] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const [source, setSource] = useState<ChatSource>("live");
+
+  const persona = useActivePersonality();
 
   const liveMessages = useChat((s) => s.messages);
   const pendingLookupCount = useChat((s) => s.pendingLookups.length);
@@ -93,12 +99,16 @@ export default function Main() {
     }
 
     // ANY non-active state — idle, saved, error, journal-ready, saving,
-    // ending, or a stale stuck "starting" — starts a fresh session. start()
-    // resets all session state, so this doubles as recovery from a wedged
-    // status. The old code only handled idle/saved here, which left every
-    // other state showing a "Start" button that silently did nothing.
+    // ending, or a stale stuck "starting" — starts a fresh session. The picker
+    // is the gate; start() below resets all session state, so this doubles as
+    // recovery from a wedged status.
+    setPickerOpen(true);
+  };
+
+  const handlePersonalityPicked = async (key: PersonalityKey) => {
+    setPickerOpen(false);
     clearChat();
-    await startSession();
+    await startSession(key);
     setShowChat(false);
   };
 
@@ -167,11 +177,14 @@ export default function Main() {
       {!showChat ? (
         <View style={styles.empty}>
           <View style={{ marginBottom: 24 }}>
-            <EliAvatar size={72} fontSize={32} />
+            <PersonaAvatar personality={persona} size={72} fontSize={32} ring />
           </View>
           <Text style={styles.emptyTitle}>What's on{"\n"}your mind?</Text>
           <Text style={styles.emptyBody}>
-            Gemini enriches your words with context.{"\n"}Eli responds as if he's there.
+            Gemini enriches your words with context.{"\n"}
+            {persona
+              ? `${persona.shortName} responds as if he's there.`
+              : "Press Start and pick who you're talking to."}
           </Text>
 
           <ScrollView
@@ -272,7 +285,9 @@ export default function Main() {
       {status === "sending" && (
         <View style={styles.assembleBanner}>
           <ActivityIndicator size="small" color={C.emote} />
-          <Text style={{ color: C.emote, fontSize: 11 }}>Eli is thinking…</Text>
+          <Text style={{ color: C.emote, fontSize: 11 }}>
+            {persona?.shortName ?? "He"} is thinking…
+          </Text>
         </View>
       )}
 
@@ -296,7 +311,7 @@ export default function Main() {
           ]}
         >
           <Text style={styles.bundlePillText}>
-            📋 Brief Eli on {savedAwaitingBriefCount} saved{" "}
+            📋 Brief {persona?.shortName ?? "him"} on {savedAwaitingBriefCount} saved{" "}
             {savedAwaitingBriefCount === 1 ? "place" : "places"} →
           </Text>
         </Pressable>
@@ -363,6 +378,11 @@ export default function Main() {
       />
       <DiagnosticsPanel visible={diagnosticsOpen} onClose={() => setDiagnosticsOpen(false)} />
       <PeopleRoster visible={peopleOpen} onClose={() => setPeopleOpen(false)} />
+      <PersonalityPicker
+        visible={pickerOpen}
+        onSelect={handlePersonalityPicked}
+        onCancel={() => setPickerOpen(false)}
+      />
 
       {/* MediaPicker retired — entry points are first-class buttons in the
           InputBar now. Kept as a future re-attachment point if Scene Capture

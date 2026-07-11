@@ -1,6 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
+import { useCompanionName } from "@/session/SessionStore";
 
 /**
  * Summary card emitted after Tim taps "📋 Brief Eli on N saved places".
@@ -17,11 +18,12 @@ interface Props {
 }
 
 export function BriefBundleCard({ msg }: Props) {
+  const who = useCompanionName();
   return (
     <View style={{ marginBottom: 16 }}>
       <View style={styles.card}>
         <Text style={styles.header}>
-          📋 Briefed Eli · {msg.time}
+          {`📋 Briefed ${who} · ${msg.time}`}
         </Text>
         <Text style={styles.title}>
           {msg.places.length} {msg.places.length === 1 ? "place" : "places"}{" "}

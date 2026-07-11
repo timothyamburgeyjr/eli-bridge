@@ -1,8 +1,9 @@
 import React from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
-import { EliAvatar } from "@/components/common/EliAvatar";
+import { PersonaAvatar } from "@/components/common/PersonaAvatar";
 import { StatusIndicator } from "@/components/common/StatusIndicator";
+import { useActivePersonality } from "@/session/SessionStore";
 import { useMode } from "@/stores/modeStore";
 import { useConnection } from "@/stores/connectionStore";
 import { useChat } from "@/stores/chatStore";
@@ -25,9 +26,10 @@ interface Props {
 }
 
 /**
- * Redesigned header. Top strip holds the hamburger, the Eli avatar with title
- * + connection status, and the Abort pill (top-right, dimmed when nothing is
- * in flight). Below that, a row of three large tap targets: Conversation Mode
+ * Redesigned header. Top strip holds the hamburger, the active companion's
+ * avatar with title + connection status, and the Abort pill (top-right, dimmed
+ * when nothing is in flight). Below that, a row of three large tap targets:
+ * Conversation Mode
  * (disabled until a session is active), Settings, and Start/End — the last
  * being context-dependent (green Start when idle, red End when connected).
  *
@@ -41,6 +43,7 @@ export function SessionHeader({
   onTimelinePress,
   onSettingsPress,
 }: Props) {
+  const persona = useActivePersonality();
   const conversation = useMode((s) => s.conversation);
   const enterConversationManual = useMode((s) => s.enterConversationManual);
   const exitConversation = useMode((s) => s.exitConversation);
@@ -105,9 +108,11 @@ export function SessionHeader({
         </Pressable>
 
         <View style={styles.titleBlock}>
-          <EliAvatar size={32} fontSize={13} />
+          <PersonaAvatar personality={persona} size={32} fontSize={13} ring />
           <View>
-            <Text style={styles.title}>Eli&apos;s Bridge</Text>
+            <Text style={styles.title}>
+              {persona ? `${persona.shortName}'s Bridge` : "The Bridge"}
+            </Text>
             <Pressable
               onPress={() => useConnection.getState().refresh()}
               hitSlop={6}

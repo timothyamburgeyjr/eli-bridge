@@ -21,6 +21,7 @@ import {
   VOICE_RECORDING_PRESET,
 } from "@/services/audio";
 import { CONFIG } from "@/constants/config";
+import { useCompanionName } from "@/session/SessionStore";
 
 interface Props {
   visible: boolean;
@@ -31,6 +32,7 @@ interface Props {
 type Phase = "idle" | "recording" | "processing" | "error";
 
 export function PersonEnrollModal({ visible, personId, onClose }: Props) {
+  const who = useCompanionName();
   const person = usePeople((s) => (personId ? s.byId[personId] : undefined));
 
   const [voicePhase, setVoicePhase] = useState<Phase>("idle");
@@ -214,7 +216,7 @@ export function PersonEnrollModal({ visible, personId, onClose }: Props) {
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 20, gap: 24 }}>
           <Text style={styles.helperHeader}>
             Add voice samples and a face photo for {person.name}. These stay on-device and
-            are not sent to Eli — they're used only for on-device identification in future sessions.
+            {`are not sent to ${who} — they're used only for on-device identification in future sessions.`}
           </Text>
 
           {/* ── Voice section ─────────────────────────────────────── */}

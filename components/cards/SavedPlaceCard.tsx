@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
 import { useChat } from "@/stores/chatStore";
+import { useCompanionName } from "@/session/SessionStore";
 
 /**
  * Card that represents a place Tim saved via the "📍 Save place" picker.
@@ -29,6 +30,7 @@ interface Props {
 }
 
 export function SavedPlaceCard({ msg }: Props) {
+  const who = useCompanionName();
   const briefSavedPlace = useChat((s) => s.briefSavedPlace);
   const markPlaceSavedForBundle = useChat(
     (s) => s.markPlaceSavedForBundle
@@ -94,7 +96,7 @@ export function SavedPlaceCard({ msg }: Props) {
                 sendInFlight ? { opacity: 0.4 } : null,
               ]}
             >
-              <Text style={styles.briefText}>💬 Brief Eli now</Text>
+              <Text style={styles.briefText}>{`💬 Brief ${who} now`}</Text>
             </Pressable>
             <Pressable
               onPress={() => markPlaceSavedForBundle(msg.id)}

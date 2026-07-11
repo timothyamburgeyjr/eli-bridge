@@ -1,5 +1,6 @@
 import { create } from "zustand";
-import { readNote, writeNote, isVaultConfigured } from "@/services/obsidian";
+import { writeNote, isVaultConfigured } from "@/services/obsidian";
+import { loadPersona } from "./personaLoader";
 import { updateScene as kindroidUpdateScene } from "@/services/kindroid";
 import { setSessionContext } from "@/services/gemini";
 import { gatherSensorSnapshot } from "./liveSensors";
@@ -16,8 +17,12 @@ import { useClarifications } from "@/stores/clarificationStore";
 import { useMode } from "@/stores/modeStore";
 import { useTimeline } from "@/stores/timelineStore";
 import type { ChatItem } from "@/components/chat/ChatStream";
-
-const BIOGRAPHY_PATH = "08 - Elias Reed/biography.md";
+import {
+  getPersonality,
+  isPersonalityKey,
+  type Personality,
+  type PersonalityKey,
+} from "@/constants/personalities";
 
 export type SessionStatus =
   | "idle" // no active session
@@ -38,8 +43,15 @@ interface SessionState {
   journal: BuiltJournal | null;
   errorMessage: string | null;
 
+  /**
+   * Who Tim is talking to this session. Chosen at Start, released at End —
+   * the chat thread, freshness ledger, and Kindroid scene all belong to one
+   * companion, so this never changes mid-session.
+   */
+  personality: PersonalityKey | null;
+
   /** Begin a new session — load biography, push initial scene, reset ledgers. */
-  start: () => Promise<void>;
+  start: (personality: PersonalityKey) => Promise<void>;
 
   /** End the session, draft the journal, and hand control to the UI for Save/Discard. */
   end: (messages: ChatItem[]) => Promise<void>;
@@ -70,8 +82,8 @@ function timeOfDayHint(): string {
   return "evening";
 }
 
-/** Compose a short (≤160 char) Eli-centric scene from current sensors. */
-async function composeInitialScene(): Promise<string> {
+/** Compose a short (≤160 char) companion-centric scene from current sensors. */
+async function composeInitialScene(persona: Personality): Promise<string> {
   let location = "home";
   try {
     const sensors = await gatherSensorSnapshot();
@@ -84,7 +96,7 @@ async function composeInitialScene(): Promise<string> {
     // fall through — location stays "home"
   }
   const tod = timeOfDayHint();
-  const base = `Eli is adjacent to Tim at ${location}, ${tod}.`;
+  const base = `${persona.shortName} is adjacent to Tim at ${location}, ${tod}.`;
   return base.length > 160 ? base.slice(0, 157).trimEnd() + "…" : base;
 }
 
@@ -121,6 +133,7 @@ function persistCurrent(get: () => SessionState): void {
     endedAt: s.endedAt,
     status: snapStatus,
     journal: s.journal,
+    personality: s.personality ?? undefined,
   });
 }
 
@@ -132,8 +145,9 @@ export const useSession = create<SessionState>((set, get) => ({
   biographyLoaded: false,
   journal: null,
   errorMessage: null,
+  personality: null,
 
-  start: async () => {
+  start: async (personality) => {
     // Only a genuinely live session blocks a (re)start. We deliberately do NOT
     // bail on "starting" or any other transient state here: with immediate
     // activation below, "starting" can't legitimately linger, and treating a
@@ -141,6 +155,7 @@ export const useSession = create<SessionState>((set, get) => ({
     // dead. From anything except "active", start fresh (this resets state).
     if (get().status === "active") return;
 
+    const persona = getPersonality(personality);
     const sessionId = newSessionId();
     const startedAt = new Date().toISOString();
     set({
@@ -151,6 +166,7 @@ export const useSession = create<SessionState>((set, get) => ({
       biographyLoaded: false,
       journal: null,
       errorMessage: null,
+      personality,
     });
     persistCurrent(get);
 
@@ -169,8 +185,8 @@ export const useSession = create<SessionState>((set, get) => ({
     useTimeline.getState().append({
       kind: "session-start",
       icon: "▶",
-      label: "Session started",
-      meta: { sessionId, startedAt },
+      label: `Session started · ${persona.shortName}`,
+      meta: { sessionId, startedAt, personality, aiId: persona.kindroidAiId },
     });
 
     // Start background GPS polling so driving-mode auto-detection fires even
@@ -192,32 +208,47 @@ export const useSession = create<SessionState>((set, get) => ({
     set({ status: "active" });
     persistCurrent(get);
 
-    // Biography → prepended to the Gemini system prompt for this session.
-    // Fire-and-forget; a failure or hang here just means no bio this session.
+    // Clear the previous session's persona block IMMEDIATELY and register who
+    // we're talking to now. Without this, a failed persona load below would
+    // leave the last companion's identity in Gemini's system prompt — so
+    // switching from Eli to Jeff on a bad connection would have Gemini writing
+    // Jeff's emotes out of Eli's biography.
+    setSessionContext("", persona.shortName);
+
+    // Persona → prepended to the Gemini system prompt for this session.
+    // Fire-and-forget; a failure or hang here just means Gemini works from the
+    // base prompt alone this session.
     void (async () => {
       if (!isVaultConfigured()) {
-        console.log("[session] vault not configured, skipping biography load");
+        console.log("[session] vault not configured, skipping persona load");
         return;
       }
       try {
-        const bio = await readNote(BIOGRAPHY_PATH);
-        if (bio.trim().length >= 40) {
-          setSessionContext(bio);
+        const { text, loaded, missing } = await loadPersona(persona);
+        if (text) {
+          setSessionContext(text, persona.shortName);
           set({ biographyLoaded: true });
-          console.log(`[session] biography loaded (${bio.length} chars)`);
+          console.log(
+            `[session] persona loaded for ${persona.shortName} ` +
+              `(${text.length} chars, ${loaded.length}/4 fields)` +
+              (missing.length ? ` — missing: ${missing.join(", ")}` : "")
+          );
         } else {
-          console.log("[session] biography page is near-empty; skipping prepend");
+          console.warn(
+            `[session] no persona fields found for ${persona.shortName} at ` +
+              `${persona.vaultDir}/Configuration/ — running on base prompt only`
+          );
         }
       } catch (err) {
-        console.warn("[session] biography load failed:", err);
+        console.warn("[session] persona load failed:", err);
       }
     })();
 
     // Initial Kindroid scene push. Fire-and-forget for the same reason.
     void (async () => {
       try {
-        const scene = await composeInitialScene();
-        await kindroidUpdateScene(scene);
+        const scene = await composeInitialScene(persona);
+        await kindroidUpdateScene(scene, persona.kindroidAiId);
         console.log(`[session] initial scene pushed: "${scene}"`);
       } catch (err) {
         console.warn("[session] initial scene push failed:", err);
@@ -247,7 +278,12 @@ export const useSession = create<SessionState>((set, get) => ({
     useMode.getState().exitVenue();
 
     try {
-      const journal = await buildJournal(messages, startedAt, endedAt);
+      const journal = await buildJournal(
+        messages,
+        startedAt,
+        endedAt,
+        activePersonality()?.shortName ?? "Companion"
+      );
       set({ journal, status: "journal-ready" });
       persistCurrent(get);
     } catch (err) {
@@ -301,6 +337,7 @@ export const useSession = create<SessionState>((set, get) => ({
       biographyLoaded: false,
       journal: null,
       errorMessage: null,
+      personality: null,
     });
     clearPersistedSession();
   },
@@ -309,6 +346,12 @@ export const useSession = create<SessionState>((set, get) => ({
     const persisted = await hydratePersistedSession();
     if (!persisted) return;
     if (get().status !== "idle") return; // don't clobber an in-flight session
+
+    // Sessions persisted before the family existed carry no personality —
+    // they were all Eli, who was the only one there.
+    const personality: PersonalityKey = isPersonalityKey(persisted.personality)
+      ? persisted.personality
+      : "eli";
 
     if (persisted.status === "active") {
       // Recovery from OOM kill mid-session. Restart the GPS poller so
@@ -322,9 +365,12 @@ export const useSession = create<SessionState>((set, get) => ({
         biographyLoaded: false, // bio loads lazily on next send if needed
         journal: persisted.journal,
         errorMessage: null,
+        personality,
       });
       startSessionPoll();
-      console.log("[session] hydrated active session from disk");
+      console.log(
+        `[session] hydrated active session from disk (${personality})`
+      );
     } else if (persisted.status === "journal-ready" || persisted.status === "saved") {
       // Tim was at the post-end review screen — restore the drafted
       // journal so he can still Save to Vault after the crash.
@@ -336,6 +382,7 @@ export const useSession = create<SessionState>((set, get) => ({
         biographyLoaded: false,
         journal: persisted.journal,
         errorMessage: null,
+        personality,
       });
       console.log(
         `[session] hydrated ${persisted.status} state with drafted journal`
@@ -343,3 +390,28 @@ export const useSession = create<SessionState>((set, get) => ({
     }
   },
 }));
+
+/**
+ * The companion Tim is talking to right now. Undefined outside a session —
+ * callers that need an identity to make a network call should treat that as
+ * "don't call", not "fall back to Eli".
+ */
+export function activePersonality(): Personality | undefined {
+  const key = useSession.getState().personality;
+  return key ? getPersonality(key) : undefined;
+}
+
+/** Hook form of {@link activePersonality}, for components. */
+export function useActivePersonality(): Personality | undefined {
+  const key = useSession((s) => s.personality);
+  return key ? getPersonality(key) : undefined;
+}
+
+/**
+ * The active companion's short name for UI copy ("Tell Jeff we're heading
+ * out"). Falls back to "them" outside a session, which reads correctly in
+ * every button label that uses it.
+ */
+export function useCompanionName(): string {
+  return useActivePersonality()?.shortName ?? "them";
+}

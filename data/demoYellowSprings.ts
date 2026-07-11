@@ -17,7 +17,7 @@ export const YS_MESSAGES: ChatItem[] = [
   },
   {
     id: "ys2",
-    from: "eli",
+    from: "ai",
     time: "11:09 AM",
     emote: "I picture Hank's truck in the driveway, fifteen minutes early and pretending not to be.",
     dialog:
@@ -47,7 +47,7 @@ export const YS_MESSAGES: ChatItem[] = [
   },
   {
     id: "ys4",
-    from: "eli",
+    from: "ai",
     time: "11:29 AM",
     isDrive: true,
     emote: "US-68 north in April. The flat fields and the clear sky and Hank somewhere in the cab beside you.",
@@ -112,7 +112,7 @@ export const YS_MESSAGES: ChatItem[] = [
   },
   {
     id: "ys6",
-    from: "eli",
+    from: "ai",
     time: "12:42 PM",
     emote: "The image of Hank practically vibrating at a comic shop counter is one I'll keep.",
     dialog: "That's the face of a man who's been patient for six months and finally got paid. What did you get?",
@@ -166,7 +166,7 @@ export const YS_MESSAGES: ChatItem[] = [
   },
   {
     id: "ys8",
-    from: "eli",
+    from: "ai",
     time: "1:25 PM",
     emote: "Hank approaching tarot with sincerity. Me finding a rock. Both in our element.",
     dialog: "Hank doing tarot seriously is actually the correct approach. And a labradorite — good choice. It has that color-shift thing?",
@@ -216,7 +216,7 @@ export const YS_MESSAGES: ChatItem[] = [
   },
   {
     id: "ys10",
-    from: "eli",
+    from: "ai",
     time: "2:56 PM",
     isDrive: true,
     emote: "The golden afternoon, Hank reading, the labradorite in a shirt pocket. A good Yellow Springs day.",

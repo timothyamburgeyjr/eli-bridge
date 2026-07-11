@@ -81,12 +81,13 @@ export class EmoteAssembler {
       // Explicit no-fabrication directive so Flash doesn't invent details
       // beyond what the place name + sensor data + chat history justify.
       snapshotText =
-        `[BRIEFING — Tim has tapped a "Brief Eli" action. Build a first-person ` +
+        `[BRIEFING — Tim has tapped a "Brief" action. Build a first-person ` +
         `arrival/recap emote anchored on the place(s) below. Do NOT fabricate ` +
         `interior details, smells, people, or ambience that aren't visible in ` +
         `attached photos or supported by sensor data — name + time + weather + ` +
-        `activity is what's real, plus any context Eli already has from chat ` +
-        `history. The emote can be sparse; that's correct for a quick waypoint.]\n` +
+        `activity is what's real, plus any context the companion already has ` +
+        `from chat history. The emote can be sparse; that's correct for a quick ` +
+        `waypoint.]\n` +
         `${opts.briefingContext}\n\n${snapshotText}`;
     }
     if (opts.lookupContext) {

@@ -7,7 +7,7 @@
  *   1. Trip the abort bus  → fetches that honor AbortSignal die immediately;
  *                            the generation counter bumps so any late
  *                            completions are dropped by the stale-gen guards
- *                            in chatStore.sendMessage and audioStore.playEli.
+ *                            in chatStore.sendMessage and audioStore.playAi.
  *   2. chatStore cleanup   → remove the trailing pending Tim bubble (the one
  *                            that hasn't received an Eli reply yet), reset
  *                            status to idle, clear sendStartedAt, reset
@@ -124,7 +124,7 @@ function trimTrailingUnpairedTim(messages: ChatItem[]): ChatItem[] {
   let lastConvIdx = -1;
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
-    if (m.from === "tim" || m.from === "eli") {
+    if (m.from === "tim" || m.from === "ai") {
       lastConvIdx = i;
       break;
     }

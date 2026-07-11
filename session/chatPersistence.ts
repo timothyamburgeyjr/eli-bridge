@@ -45,8 +45,25 @@ export async function hydrateMessages(): Promise<ChatItem[]> {
     if (!Array.isArray(items)) return [];
 
     const kept: ChatItem[] = [];
-    for (const m of items) {
-      if (!m || typeof m !== "object" || !m.id || !m.from) continue;
+    for (const raw0 of items) {
+      if (!raw0 || typeof raw0 !== "object" || !raw0.id || !raw0.from) continue;
+
+      // Chats persisted before the family existed used from:"eli" and ids of
+      // the form `eli-<ts>`. They were all Eli — migrate in place so they keep
+      // rendering (with his face, not whoever's active now).
+      const m =
+        raw0.from === "eli"
+          ? {
+              ...raw0,
+              from: "ai",
+              personality: raw0.personality ?? "eli",
+              id:
+                typeof raw0.id === "string" && raw0.id.startsWith("eli-")
+                  ? "ai-" + raw0.id.slice(4)
+                  : raw0.id,
+            }
+          : raw0;
+
       const atts = (m as { attachments?: { localPath?: string }[] }).attachments;
       if (atts && atts.length > 0) {
         // Drop attachments whose local files no longer exist; keep the

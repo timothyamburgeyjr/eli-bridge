@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
+import { useCompanionName } from "@/session/SessionStore";
 
 interface Props {
   msg: {
@@ -15,6 +16,7 @@ interface Props {
 }
 
 export function RideCard({ msg }: Props) {
+  const who = useCompanionName();
   const [shared, setShared] = useState(false);
   const name = msg.name ?? msg.rideName ?? "";
   const type = msg.type ?? msg.rideType ?? "";
@@ -37,7 +39,7 @@ export function RideCard({ msg }: Props) {
             <Text style={{ color: C.accent, fontSize: 11, fontWeight: "600" }}>Share</Text>
           </Pressable>
         ) : (
-          <Text style={{ fontSize: 11, color: C.green, paddingRight: 4 }}>✓ Eli knows</Text>
+          <Text style={{ fontSize: 11, color: C.green, paddingRight: 4 }}>{`✓ ${who} knows`}</Text>
         )}
       </View>
     </View>

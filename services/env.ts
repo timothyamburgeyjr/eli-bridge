@@ -3,12 +3,16 @@
 // works in both dev-client and production builds without depending on
 // `Constants.expoConfig.extra` (which is unreliable for custom extras in SDK 55).
 
+// Note: per-companion identity (Kindroid ai_id, ElevenLabs voice_id) is NOT
+// here. The switch below has to be hand-written per key because Metro can't
+// inline a dynamic lookup, which makes env a bad home for anything that varies
+// by personality. Those live in constants/personalities.ts. Only true secrets
+// (API keys) belong in env.
+
 type EnvKey =
   | "GEMINI_API_KEY"
   | "KINDROID_API_KEY"
-  | "KINDROID_AI_ID"
   | "ELEVENLABS_API_KEY"
-  | "ELEVENLABS_VOICE_ID"
   | "IMAGE_SERVER_URL"
   | "IMAGE_UPLOAD_KEY"
   | "GOOGLE_MAPS_API_KEY"
@@ -31,9 +35,7 @@ function rawValue(key: EnvKey): string | undefined {
   switch (key) {
     case "GEMINI_API_KEY":       return process.env.EXPO_PUBLIC_GEMINI_API_KEY;
     case "KINDROID_API_KEY":     return process.env.EXPO_PUBLIC_KINDROID_API_KEY;
-    case "KINDROID_AI_ID":       return process.env.EXPO_PUBLIC_KINDROID_AI_ID;
     case "ELEVENLABS_API_KEY":   return process.env.EXPO_PUBLIC_ELEVENLABS_API_KEY;
-    case "ELEVENLABS_VOICE_ID":  return process.env.EXPO_PUBLIC_ELEVENLABS_VOICE_ID;
     case "IMAGE_SERVER_URL":     return process.env.EXPO_PUBLIC_IMAGE_SERVER_URL;
     case "IMAGE_UPLOAD_KEY":     return process.env.EXPO_PUBLIC_IMAGE_UPLOAD_KEY;
     case "GOOGLE_MAPS_API_KEY":  return process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY;

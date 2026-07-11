@@ -266,7 +266,7 @@ function buildHistorySnippet(): Content[] {
   const messages = useChat.getState().messages;
   const recent = messages.slice(-6);
   return recent
-    .filter((m) => m.from === "tim" || m.from === "eli")
+    .filter((m) => m.from === "tim" || m.from === "ai")
     .map((m) => ({
       role: m.from === "tim" ? "user" : ("model" as const),
       parts: [

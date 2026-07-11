@@ -1,5 +1,6 @@
 import { File, Paths } from "expo-file-system";
 import type { BuiltJournal } from "./journalBuilder";
+import type { PersonalityKey } from "@/constants/personalities";
 
 const SESSION_FILE = "session-state.v1.json";
 
@@ -23,6 +24,11 @@ export interface PersistedSession {
   endedAt: string | null;
   status: "idle" | "active" | "journal-ready" | "saved";
   journal: BuiltJournal | null;
+  /**
+   * Who Tim was talking to. Absent on sessions persisted before the family
+   * existed — hydrate() treats that as Eli, who was the only one there.
+   */
+  personality?: PersonalityKey;
 }
 
 export async function persistSession(state: PersistedSession): Promise<void> {

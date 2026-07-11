@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { C } from "@/constants/theme";
+import { useCompanionName } from "@/session/SessionStore";
 
 interface Props {
   visible: boolean;
@@ -35,6 +36,7 @@ export function BundleBriefSheet({
   onClose,
   onConfirm,
 }: Props) {
+  const who = useCompanionName();
   const [note, setNote] = useState("");
 
   useEffect(() => {
@@ -56,7 +58,7 @@ export function BundleBriefSheet({
         <SafeAreaView style={styles.sheetWrap} edges={["bottom"]}>
           <View style={styles.sheet}>
             <View style={styles.header}>
-              <Text style={styles.title}>📋 Brief Eli on {placeCount}</Text>
+              <Text style={styles.title}>{`📋 Brief ${who} on ${placeCount}`}</Text>
               <Pressable onPress={onClose} hitSlop={12}>
                 <Text style={{ color: C.muted, fontSize: 18 }}>×</Text>
               </Pressable>
@@ -87,7 +89,7 @@ export function BundleBriefSheet({
                 }}
                 style={[styles.actionBtn, styles.confirmBtn]}
               >
-                <Text style={styles.confirmText}>📋 Brief Eli</Text>
+                <Text style={styles.confirmText}>{`📋 Brief ${who}`}</Text>
               </Pressable>
             </View>
           </View>

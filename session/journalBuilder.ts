@@ -1,6 +1,10 @@
 import type { ChatItem } from "@/components/chat/ChatStream";
 import { draftJournal } from "@/services/gemini";
 
+// Deliberately NOT importing SessionStore here — SessionStore imports this
+// module, and a cycle through Metro is not worth the convenience. The
+// companion's name is threaded in as a parameter instead.
+
 export interface SessionSummary {
   startedAt: string; // ISO
   endedAt: string; // ISO
@@ -13,7 +17,7 @@ export interface SessionSummary {
   nowPlayingLog: string[]; // "Track — Artist"
   scenesCaptured: number;
   firstTimQuote?: string;
-  firstEliQuote?: string;
+  firstAiQuote?: string;
 }
 
 export interface BuiltJournal {
@@ -47,15 +51,15 @@ export function summarizeSession(
   let eliMessages = 0;
   let scenesCaptured = 0;
   let firstTimQuote: string | undefined;
-  let firstEliQuote: string | undefined;
+  let firstAiQuote: string | undefined;
 
   for (const m of messages) {
     if (m.from === "tim") {
       timMessages++;
       if (!firstTimQuote && m.dialog) firstTimQuote = m.dialog.slice(0, 140);
-    } else if (m.from === "eli") {
+    } else if (m.from === "ai") {
       eliMessages++;
-      if (!firstEliQuote && m.dialog) firstEliQuote = m.dialog.slice(0, 140);
+      if (!firstAiQuote && m.dialog) firstAiQuote = m.dialog.slice(0, 140);
     } else if (m.from === "scene") {
       scenesCaptured++;
     } else if (m.from === "location" && (m as any).placeName) {
@@ -72,7 +76,7 @@ export function summarizeSession(
 
   // People encountered: derive from the roster's lastSeen bump pattern.
   // Simplest here: scan message stream for any Person names referenced in
-  // Eli's or Tim's dialog is overfitted. Keep it minimal; we'll include
+  // The companion's or Tim's dialog is overfitted. Keep it minimal; we'll include
   // names only from explicit attachments in future passes.
 
   return {
@@ -87,12 +91,12 @@ export function summarizeSession(
     nowPlayingLog: Array.from(nowPlayingSet),
     scenesCaptured,
     firstTimQuote,
-    firstEliQuote,
+    firstAiQuote,
   };
 }
 
 /** Compose a human-readable briefing string to hand to Gemini. */
-function summaryToBriefing(s: SessionSummary): string {
+function summaryToBriefing(s: SessionSummary, companion: string): string {
   const parts: string[] = [];
   parts.push(
     `Session ${s.startedAt} → ${s.endedAt} (${s.durationMinutes} minutes, ${s.messageCount} messages).`
@@ -110,22 +114,23 @@ function summaryToBriefing(s: SessionSummary): string {
     parts.push(`${s.scenesCaptured} scene capture${s.scenesCaptured === 1 ? "" : "s"}.`);
   }
   if (s.firstTimQuote) parts.push(`First thing Tim said: "${s.firstTimQuote}"`);
-  if (s.firstEliQuote) parts.push(`First thing Eli said: "${s.firstEliQuote}"`);
+  if (s.firstAiQuote)
+    parts.push(`First thing ${companion} said: "${s.firstAiQuote}"`);
   return parts.join("\n");
 }
 
-/** Build a verbatim transcript of Tim/Eli turns as markdown. */
-function buildTranscript(messages: ChatItem[]): string {
+/** Build a verbatim transcript of Tim/companion turns as markdown. */
+function buildTranscript(messages: ChatItem[], companion: string): string {
   const lines: string[] = [];
   for (const m of messages) {
     if (m.from === "tim") {
       const time = m.time || "";
       const emote = m.emote ? `_(${m.emote})_ ` : "";
       lines.push(`**Tim** (${time}): ${emote}${m.dialog ?? ""}`);
-    } else if (m.from === "eli") {
+    } else if (m.from === "ai") {
       const time = m.time || "";
       const emote = m.emote ? `_(${m.emote})_ ` : "";
-      lines.push(`**Eli** (${time}): ${emote}${m.dialog ?? ""}`);
+      lines.push(`**${companion}** (${time}): ${emote}${m.dialog ?? ""}`);
     }
   }
   return lines.join("\n\n");
@@ -168,10 +173,12 @@ async function draftTitle(s: SessionSummary): Promise<string> {
 export async function buildJournal(
   messages: ChatItem[],
   startedAt: string,
-  endedAt: string
+  endedAt: string,
+  /** Display name for the AI turns in the transcript. */
+  companion: string
 ): Promise<BuiltJournal> {
   const summary = summarizeSession(messages, startedAt, endedAt);
-  const briefing = summaryToBriefing(summary);
+  const briefing = summaryToBriefing(summary, companion);
 
   let narrative: string;
   try {
@@ -186,7 +193,7 @@ export async function buildJournal(
 
   const title = await draftTitle(summary);
   const dateYmd = toYmd(startedAt);
-  const transcript = buildTranscript(messages);
+  const transcript = buildTranscript(messages, companion);
 
   const frontmatter =
     `---\n` +

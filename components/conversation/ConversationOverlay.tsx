@@ -28,6 +28,7 @@ import {
 } from "@/services/audio";
 import { abortPipeline } from "@/session/abortPipeline";
 import { QuickMessagesPopup } from "@/components/chat/QuickMessagesPopup";
+import { useCompanionName } from "@/session/SessionStore";
 
 const KEEP_AWAKE_TAG = "eli-bridge-conversation";
 
@@ -48,6 +49,7 @@ const KEEP_AWAKE_TAG = "eli-bridge-conversation";
  * Kindroid / ElevenLabs work but keeps the overlay open.
  */
 export function ConversationOverlay() {
+  const who = useCompanionName();
   const conversation = useMode((s) => s.conversation);
   const exitConversation = useMode((s) => s.exitConversation);
   const messages = useChat((s) => s.messages);
@@ -117,12 +119,12 @@ export function ConversationOverlay() {
   // Force-speak every new Eli reply while Conversation Mode is on. Same
   // freshness gate as before — only auto-play messages <60s old.
   const lastAutoSpokenRef = useRef<string | null>(null);
-  const playEli = useAudio((s) => s.playEli);
+  const playAi = useAudio((s) => s.playAi);
   useEffect(() => {
     if (!conversation) return;
     for (let i = messages.length - 1; i >= 0; i--) {
       const m = messages[i];
-      if (m.from !== "eli") continue;
+      if (m.from !== "ai") continue;
       if (lastAutoSpokenRef.current === m.id) return;
       const raw = m.raw ?? (m.emote ? `_(*${m.emote}*)_ ${m.dialog}` : m.dialog);
       if (!raw) return;
@@ -139,10 +141,10 @@ export function ConversationOverlay() {
         `[conv] auto-speak FIRE msg=${m.id} age=${ageMs ?? "?"}ms`
       );
       lastAutoSpokenRef.current = m.id;
-      playEli(m.id, raw);
+      playAi(m.id, raw);
       return;
     }
-  }, [conversation, messages, playEli]);
+  }, [conversation, messages, playAi]);
 
   // TTS lifecycle from audioStore — we need to block recording while audio
   // is generating/playing, and let a tap on the screen stop playback.
@@ -271,11 +273,11 @@ export function ConversationOverlay() {
     chatStatus === "assembling"
       ? "Gemini thinking…"
       : chatStatus === "sending"
-      ? "Eli thinking…"
+      ? `${who} thinking…`
       : audioGenerating
-      ? "Preparing Eli's voice…"
+      ? `Preparing ${who}'s voice…`
       : audioPlaying
-      ? "Eli speaking · tap to stop"
+      ? `${who} speaking · tap to stop`
       : recording
       ? `Recording · ${formatTime(elapsed)} · tap anywhere to send`
       : "Tap anywhere to speak";
@@ -365,7 +367,7 @@ export function ConversationOverlay() {
             <View style={{ flex: 1 }}>
               <Text style={styles.quickHeaderTitle}>Quick Messages</Text>
               <Text style={styles.quickHeaderSubtitle}>
-                Send Eli an instant message
+                {`Send ${who} an instant message`}
               </Text>
             </View>
           </View>
@@ -383,7 +385,7 @@ export function ConversationOverlay() {
           <View style={styles.quickFooter}>
             <Text style={styles.quickFooterIcon}>ⓘ</Text>
             <Text style={styles.quickFooterText}>
-              Browse categories of messages and send one to Eli instantly.
+              {`Browse categories of messages and send one to ${who} instantly.`}
             </Text>
           </View>
         </View>

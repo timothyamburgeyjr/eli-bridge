@@ -18,6 +18,7 @@ import {
   NEARBY_PLACES_WIDE_RADIUS_M,
 } from "@/services/places";
 import { getCurrentLocation } from "@/services/location";
+import { useCompanionName } from "@/session/SessionStore";
 
 interface Props {
   visible: boolean;
@@ -37,6 +38,7 @@ interface Props {
  * button if the list looks wrong.
  */
 export function PlacePickerModal({ visible, onClose, onPick }: Props) {
+  const who = useCompanionName();
   const [loading, setLoading] = useState(false);
   const [places, setPlaces] = useState<NearbyPlace[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -115,7 +117,7 @@ export function PlacePickerModal({ visible, onClose, onPick }: Props) {
             </Pressable>
           </View>
           <Text style={styles.subtitle}>
-            Tap the place you're at — Eli won't see it until you brief.
+            {`Tap the place you're at — ${who} won't see it until you brief.`}
           </Text>
 
           {loading ? (

@@ -25,6 +25,7 @@ import { identifySpeaker } from "@/people/voiceId";
 import { identifyFaces, FaceMatch } from "@/people/faceId";
 import { usePeople, Person } from "@/people/PeopleStore";
 import { useCompanions } from "@/session/CompanionTracker";
+import { activePersonality } from "@/session/SessionStore";
 import { useClarifications } from "@/stores/clarificationStore";
 import { buildPresentAnchor } from "@/session/presentAnchor";
 import { getPersonContext, resetPersonContextCache } from "@/people/personContext";
@@ -263,7 +264,7 @@ function buildHistory(messages: ChatItem[]): Content[] {
         role: "user",
         parts: [{ text: `[TIM'S INPUT]\n${m.raw ?? m.dialog}` }],
       });
-    } else if (m.from === "eli") {
+    } else if (m.from === "ai") {
       history.push({
         role: "model",
         parts: [{ text: m.raw ?? (m.emote ? `_(*${m.emote}*)_ ${m.dialog}` : m.dialog) }],
@@ -347,18 +348,19 @@ function isTransientSendError(err: unknown): boolean {
 }
 
 /**
- * Condense a long scene description to ≤160 chars framed from Eli's perspective,
- * suitable for Kindroid's current_scene field.
+ * Condense a long scene description to ≤160 chars framed from the companion's
+ * perspective, suitable for Kindroid's current_scene field.
  */
 function condenseForKindroid(richSceneText: string, note?: string): string {
   const noteBit = note ? ` ${note}.` : "";
-  const seed = `Eli is with Tim. ${richSceneText.trim()}${noteBit}`;
+  const who = activePersonality()?.shortName ?? "He";
+  const seed = `${who} is with Tim. ${richSceneText.trim()}${noteBit}`;
   if (seed.length <= 160) return seed;
   return seed.slice(0, 157).replace(/\s+\S*$/, "") + "…";
 }
 
 /**
- * Compose the briefingContext string for a single Save Place "Brief Eli now"
+ * Compose the briefingContext string for a single Save Place "Brief now"
  * tap. Gemini will use this as the anchor for an arrival emote.
  */
 function composeSinglePlaceBrief(card: {
@@ -389,7 +391,7 @@ function composeBundledBrief(
   optionalNote?: string
 ): string {
   const lines: string[] = [
-    "Tim is briefing Eli on a sequence of places he visited today:",
+    `Tim is briefing ${activePersonality()?.shortName ?? "his companion"} on a sequence of places he visited today:`,
   ];
   for (const c of cards) {
     const cat = c.category ? ` (${c.category})` : "";
@@ -1191,15 +1193,19 @@ export const useChat = create<ChatState>((set, get) => ({
             ? 180_000
             : undefined; // undefined → kindroid service default (90s)
 
-      // ── Kindroid step ── relay to Eli. Extracted into a closure so the
-      // recovery popup can re-run JUST this step on transient failure —
-      // without redoing the upload phase above. References itself as its
-      // own retry continuation.
+      // ── Kindroid step ── relay to whoever Tim is talking to. Extracted into
+      // a closure so the recovery popup can re-run JUST this step on transient
+      // failure — without redoing the upload phase above. References itself as
+      // its own retry continuation.
       const deliverToKindroid = async (): Promise<void> => {
+        const persona = activePersonality();
+        if (!persona) {
+          throw new Error("No active session — nobody to send to");
+        }
         set({ status: "sending", sendStartedAt: Date.now() });
         let eliRaw: string;
         try {
-          eliRaw = await kindroidSend(outgoingPayload, {
+          eliRaw = await kindroidSend(outgoingPayload, persona.kindroidAiId, {
             imageUrls,
             timeoutMs: kindroidTimeoutMs,
           });
@@ -1233,12 +1239,15 @@ export const useChat = create<ChatState>((set, get) => ({
 
         const eliParsed = parseAssembledMessage(eliRaw);
         const eliMsg: ChatItem = {
-          id: `eli-${Date.now()}`,
-          from: "eli",
+          id: `ai-${Date.now()}`,
+          from: "ai",
           time: timeString(),
           emote: eliParsed.leadingEmote || undefined,
           dialog: eliParsed.body || eliParsed.raw,
           raw: eliParsed.raw,
+          // Stamped at creation so scrollback keeps the right face and color
+          // even after the session moves on to a different companion.
+          personality: persona.key,
         };
         set({
           messages: [...get().messages, eliMsg],
@@ -1520,9 +1529,12 @@ export const useChat = create<ChatState>((set, get) => ({
         )
       );
 
+      const persona = activePersonality();
+      const companionName = persona?.shortName ?? "the companion";
+
       const scenePrompt =
         "Describe this scene in 3-5 sentences, first-person from Tim's perspective. " +
-        "Capture the room, the lighting, notable objects, ambient mood, and anything Eli should 'see' as if he's adjacent. " +
+        `Capture the room, the lighting, notable objects, ambient mood, and anything ${companionName} should 'see' as if he's adjacent. ` +
         "Do NOT wrap with _(*...*)_. Return plain prose only." +
         (note ? `\n\nTim's note on the scene: ${note}` : "");
 
@@ -1536,7 +1548,8 @@ export const useChat = create<ChatState>((set, get) => ({
       // ── Step 2: Immediately update Kindroid's current_scene (persistent backdrop)
       const condensed = condenseForKindroid(richScene, note);
       try {
-        await kindroidUpdateScene(condensed);
+        if (!persona) throw new Error("No active session");
+        await kindroidUpdateScene(condensed, persona.kindroidAiId);
       } catch (err) {
         // Non-fatal — scene memo still grounds the next emote even if the push fails
         console.warn("Kindroid updateScene failed", err);

@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, StyleSheet, ScrollView } from "react-native";
 import { C } from "@/constants/theme";
+import { useCompanionName } from "@/session/SessionStore";
 
 const TRANSPORT_MODES = [
   { id: "car", icon: "🚗", label: "Car" },
@@ -38,6 +39,7 @@ interface Props {
 }
 
 export function DepartureCard({ msg }: Props) {
+  const who = useCompanionName();
   const [mode, setMode] = useState(msg.detectedMode ?? "car");
   const [briefed, setBriefed] = useState(!!msg.briefed);
 
@@ -133,15 +135,15 @@ export function DepartureCard({ msg }: Props) {
 
         {!briefed ? (
           <Pressable onPress={() => setBriefed(true)} style={styles.briefBtn}>
-            <Text style={styles.briefBtnText}>Tell Eli we're heading out →</Text>
+            <Text style={styles.briefBtnText}>{`Tell ${who} we're heading out →`}</Text>
           </Pressable>
         ) : (
           <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <View style={styles.greenDot} />
             <Text style={styles.briefedText}>
               {msg.legs
-                ? `Eli briefed · ${msg.legs.length}-leg route → ${msg.destination_set}`
-                : `Eli briefed · ${selected?.icon} ${selected?.label}${msg.destination_set ? ` → ${msg.destination_set}` : " · no destination"}`}
+                ? `${who} briefed · ${msg.legs.length}-leg route → ${msg.destination_set}`
+                : `${who} briefed · ${selected?.icon} ${selected?.label}${msg.destination_set ? ` → ${msg.destination_set}` : " · no destination"}`}
             </Text>
           </View>
         )}

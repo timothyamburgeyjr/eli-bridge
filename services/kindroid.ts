@@ -118,19 +118,23 @@ export interface SendMessageOptions {
 }
 
 /**
- * Send a Kindroid-ready message (`_(*emote*)_ dialog`) to Eli and return his full reply.
- * Total message length must be ≤ 4000 chars; emote portion should already be capped
- * at 2000 chars by the EmoteAssembler.
+ * Send a Kindroid-ready message (`_(*emote*)_ dialog`) to one of the family and
+ * return their full reply. Total message length must be ≤ 4000 chars; the emote
+ * portion should already be capped at 2000 chars by the EmoteAssembler.
+ *
+ * `aiId` is positional and required on purpose: there is no sensible default
+ * once there is more than one companion, and a silent fallback would mean
+ * delivering Jeff's message to Eli.
  */
 export async function sendMessage(
   message: string,
+  aiId: string,
   options: SendMessageOptions = {}
 ): Promise<string> {
   const payload = `${FORMAT_DIRECTIVE}\n${message}`;
   if (payload.length > 4000) {
     throw new Error(`Message is ${payload.length} chars, exceeds Kindroid's 4000-char cap`);
   }
-  const aiId = requireEnv("KINDROID_AI_ID");
   const body: Record<string, unknown> = {
     ai_id: aiId,
     message: payload,
@@ -160,11 +164,13 @@ export async function sendMessage(
 
 // ── updateScene ────────────────────────────────────────────────────
 
-export async function updateScene(currentScene: string): Promise<void> {
+export async function updateScene(
+  currentScene: string,
+  aiId: string
+): Promise<void> {
   if (currentScene.length > 160) {
     throw new Error(`current_scene is ${currentScene.length} chars, max 160`);
   }
-  const aiId = requireEnv("KINDROID_AI_ID");
   await kindroidRequest({
     path: "/update-info",
     body: { ai_id: aiId, current_scene: currentScene },

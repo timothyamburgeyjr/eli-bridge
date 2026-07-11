@@ -5,6 +5,7 @@ import { addAudioTags } from "@/services/gemini";
 import { synthesizeToFile } from "@/services/elevenlabs";
 import { useRecovery } from "@/stores/recoveryStore";
 import { useTimeline } from "@/stores/timelineStore";
+import { activePersonality } from "@/session/SessionStore";
 import {
   currentAbortSignal,
   currentGeneration,
@@ -32,7 +33,7 @@ interface AudioState {
    * Gemini (tag injection) → ElevenLabs (synthesis) and writes to the local
    * cache. On cache hit, it replays the existing file with zero API cost.
    */
-  playEli: (messageId: string, rawMessage: string) => Promise<void>;
+  playAi: (messageId: string, rawMessage: string) => Promise<void>;
 
   /** Stop the currently-playing audio, if any. */
   stop: () => void;
@@ -115,13 +116,13 @@ export const useAudio = create<AudioState>((set, get) => ({
     }
   },
 
-  playEli: async (messageId, rawMessage) => {
+  playAi: async (messageId, rawMessage) => {
     const state = get();
     const existing = state.cache[messageId];
 
     // If this message is currently playing, tapping again pauses it → mark played.
     if (existing?.status === "playing") {
-      console.log(`[audio] playEli STOP (already playing) msg=${messageId}`);
+      console.log(`[audio] playAi STOP (already playing) msg=${messageId}`);
       get().stop();
       return;
     }
@@ -129,7 +130,7 @@ export const useAudio = create<AudioState>((set, get) => ({
     // Always stop whatever else is playing first.
     if (state.currentMessageId && state.currentMessageId !== messageId) {
       console.log(
-        `[audio] playEli stopping prior msg=${state.currentMessageId} to start msg=${messageId}`
+        `[audio] playAi stopping prior msg=${state.currentMessageId} to start msg=${messageId}`
       );
       get().stop();
     }
@@ -137,13 +138,13 @@ export const useAudio = create<AudioState>((set, get) => ({
     // Cache hit: play the existing file.
     if (existing && existing.path && (existing.status === "ready" || existing.status === "played")) {
       console.log(
-        `[audio] playEli REPLAY (cache hit, status=${existing.status}) msg=${messageId}`
+        `[audio] playAi REPLAY (cache hit, status=${existing.status}) msg=${messageId}`
       );
       startPlayback(messageId, existing.path, set, get);
       return;
     }
 
-    console.log(`[audio] playEli GENERATE msg=${messageId}`);
+    console.log(`[audio] playAi GENERATE msg=${messageId}`);
 
     // Cache miss: generate. Set currentMessageId here (not just when playback
     // starts) so consumers reading `cache[currentMessageId]` see a defined
@@ -187,10 +188,33 @@ export const useAudio = create<AudioState>((set, get) => ({
         return;
       }
 
+      // Whose voice. Undefined only outside a session, where there is nothing
+      // to replay anyway — surface it rather than guessing at a speaker.
+      const persona = activePersonality();
+      if (!persona?.elevenVoiceId) {
+        set((s) => ({
+          cache: {
+            ...s.cache,
+            [messageId]: {
+              messageId,
+              status: "error",
+              error: persona
+                ? `${persona.shortName} has no voice yet`
+                : "No active session — nobody to speak",
+            },
+          },
+          currentMessageId: null,
+        }));
+        return;
+      }
+
       const emoteContext = extractEmoteContext(rawMessage);
       const tagged = await addAudioTags(dialog, emoteContext, abortSignal);
       if (isStaleGeneration(myGen)) return;
-      const path = await synthesizeToFile(tagged, messageId);
+      const path = await synthesizeToFile(tagged, messageId, {
+        voiceId: persona.elevenVoiceId,
+        voiceSettings: persona.voiceSettings,
+      });
       if (isStaleGeneration(myGen)) return;
 
       set((s) => ({
@@ -228,7 +252,7 @@ export const useAudio = create<AudioState>((set, get) => ({
           "elevenlabs",
           msg,
           // Resubmit: regenerate from scratch (addAudioTags + synth).
-          () => get().playEli(messageId, rawMessage),
+          () => get().playAi(messageId, rawMessage),
           // Cancel: drop the error cache entry — the Eli message itself
           // stays in the chat, just without audio.
           () => {

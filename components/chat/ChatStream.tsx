@@ -5,7 +5,7 @@ import {
   NativeSyntheticEvent,
   NativeScrollEvent,
 } from "react-native";
-import { TimBubble, EliBubble } from "./MessageBubble";
+import { TimBubble, AiBubble } from "./MessageBubble";
 import { renderCard, AnyMsg } from "@/session/CardEngine";
 import { GeneratingResponse } from "./GeneratingResponse";
 
@@ -39,9 +39,9 @@ function renderRow(item: ChatItem) {
           presentAnchor={item.presentAnchor}
         />
       );
-    case "eli":
+    case "ai":
       return (
-        <EliBubble
+        <AiBubble
           id={item.id}
           emote={item.emote}
           dialog={item.dialog}

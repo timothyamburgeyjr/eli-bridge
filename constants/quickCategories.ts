@@ -1,6 +1,6 @@
 /**
  * Quick Messages categories — the six conversational gestures Tim picks
- * between when he wants to start a thread with Eli but doesn't want to type.
+ * between when he wants to start a thread with his companion but doesn't want to type.
  *
  * These are MODE-based, not topic-based. Each represents a different *kind of
  * being-with* — observe, comment on atmosphere, share a feeling, anchor to
@@ -86,8 +86,8 @@ export const QUICK_CATEGORIES: readonly QuickCategoryMeta[] = [
       "a parking lot after errands → wound-down / done-with-this-week / " +
       "ready-to-just-be. Mid-drive on a quiet rural road → meditative / " +
       "restless / want-to-talk. Each opener is one line in Tim's voice that " +
-      "invites Eli into that feeling. Tim picks the one that fits and skips " +
-      "the others.",
+      "invites the companion into that feeling. Tim picks the one that fits " +
+      "and skips the others.",
   },
   {
     key: "time-rhythm",
@@ -137,7 +137,7 @@ export const QUICK_CATEGORIES: readonly QuickCategoryMeta[] = [
       "what it is, the cultural texture (what the town is *like* as a town), " +
       "industries that shaped it, local sayings or quirks. Lean on the " +
       "resolved place name + the broader region. Each message is Tim asking " +
-      "Eli to share or riff on a piece of place-lore, or Tim noting " +
+      "the companion to share or riff on a piece of place-lore, or Tim noting " +
       "something cultural he's aware of (\"this is Mark Twain country\" / " +
       "\"feels like the town hasn't changed since the '70s\").",
   },

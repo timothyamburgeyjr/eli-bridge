@@ -9,6 +9,7 @@ import {
 import { C } from "@/constants/theme";
 import { useChat } from "@/stores/chatStore";
 import { useAudio } from "@/stores/audioStore";
+import { useCompanionName } from "@/session/SessionStore";
 
 /**
  * "Generating response…" indicator that sits inside the chat scroll, above
@@ -28,6 +29,7 @@ import { useAudio } from "@/stores/audioStore";
  * component is visible; they pause/unmount cleanly when it hides.
  */
 export function GeneratingResponse() {
+  const who = useCompanionName();
   const chatStatus = useChat((s) => s.status);
   const audioCurrentId = useAudio((s) => s.currentMessageId);
   const audioEntryStatus = useAudio((s) =>
@@ -41,7 +43,7 @@ export function GeneratingResponse() {
   if (chatStatus === "assembling") {
     stage = { label: "Gemini", sub: "Building emote…" };
   } else if (chatStatus === "sending") {
-    stage = { label: "Eli", sub: "Awaiting reply…" };
+    stage = { label: who, sub: "Awaiting reply…" };
   } else if (audioCurrentId && audioEntryStatus === "generating") {
     stage = { label: "ElevenLabs", sub: "Synthesizing voice…" };
   }

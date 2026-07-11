@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View, Text, Pressable, Linking, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
 import { hasActivityPermission } from "@/modules/activity-recognition";
+import { useCompanionName } from "@/session/SessionStore";
 
 /**
  * Banner that surfaces a denied ACTIVITY_RECOGNITION permission instead of
@@ -20,6 +21,7 @@ import { hasActivityPermission } from "@/modules/activity-recognition";
  * to land before we accuse the user of denying.
  */
 export function ActivityPermissionBanner() {
+  const who = useCompanionName();
   const [denied, setDenied] = useState(false);
   const [dismissed, setDismissed] = useState(false);
 
@@ -52,7 +54,7 @@ export function ActivityPermissionBanner() {
       >
         <Text style={styles.label}>⚠ Activity recognition disabled</Text>
         <Text style={styles.sub}>
-          Eli won't know if you're walking, driving, or cycling. Tap to grant.
+          {`${who} won't know if you're walking, driving, or cycling. Tap to grant.`}
         </Text>
       </Pressable>
       <Pressable onPress={() => setDismissed(true)} hitSlop={8} style={styles.dismiss}>
