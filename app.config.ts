@@ -53,6 +53,11 @@ export default ({ config }: ConfigContext): ExpoConfig =>
       // at node_modules/react-native/sdks/hermesc instead of the empty
       // stub at node_modules/hermes-compiler. See plugin source for details.
       "./config-plugins/disable-hermes-v1.js",
+      // …and rewrite the explicit `hermesCommand` in build.gradle, which
+      // overrides that property and otherwise still points at the stub.
+      // Without this, DEBUG builds work and every RELEASE build dies in
+      // :app:createBundleReleaseJsAndAssets. See plugin source.
+      "./config-plugins/fix-hermesc-path.js",
       // Splash screen — full-bleed sunset gradient wallpaper with the
       // "Eli's Bridge · by Timothy Amburgey Jr." credits screen. Cover
       // resizeMode stretches the square PNG to fill any phone aspect
