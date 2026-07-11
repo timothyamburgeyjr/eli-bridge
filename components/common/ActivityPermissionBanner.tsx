@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { View, Text, Pressable, Linking, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
 import { hasActivityPermission } from "@/modules/activity-recognition";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 
 /**
  * Banner that surfaces a denied ACTIVITY_RECOGNITION permission instead of

@@ -12,7 +12,7 @@ import { C } from "@/constants/theme";
 import { usePeople, Person } from "@/people/PeopleStore";
 import { resolveOrCreateProfilePath } from "@/people/profileLinker";
 import { PersonEnrollModal } from "./PersonEnrollModal";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 
 interface Props {
   visible: boolean;

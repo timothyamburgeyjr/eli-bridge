@@ -5,7 +5,7 @@ import { addAudioTags } from "@/services/gemini";
 import { synthesizeToFile } from "@/services/elevenlabs";
 import { useRecovery } from "@/stores/recoveryStore";
 import { useTimeline } from "@/stores/timelineStore";
-import { activePersonality } from "@/session/SessionStore";
+import { activePersonality } from "@/stores/personaStore";
 import { moodForApply } from "@/stores/moodStore";
 import {
   currentAbortSignal,

@@ -18,7 +18,7 @@ import {
   NEARBY_PLACES_WIDE_RADIUS_M,
 } from "@/services/places";
 import { getCurrentLocation } from "@/services/location";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 
 interface Props {
   visible: boolean;

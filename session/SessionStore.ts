@@ -24,6 +24,7 @@ import {
   type Personality,
   type PersonalityKey,
 } from "@/constants/personalities";
+import { usePersona, activePersonality } from "@/stores/personaStore";
 
 export type SessionStatus =
   | "idle" // no active session
@@ -43,13 +44,6 @@ interface SessionState {
   biographyLoaded: boolean;
   journal: BuiltJournal | null;
   errorMessage: string | null;
-
-  /**
-   * Who Tim is talking to this session. Chosen at Start, released at End —
-   * the chat thread, freshness ledger, and Kindroid scene all belong to one
-   * companion, so this never changes mid-session.
-   */
-  personality: PersonalityKey | null;
 
   /** Begin a new session — load biography, push initial scene, reset ledgers. */
   start: (personality: PersonalityKey) => Promise<void>;
@@ -134,7 +128,7 @@ function persistCurrent(get: () => SessionState): void {
     endedAt: s.endedAt,
     status: snapStatus,
     journal: s.journal,
-    personality: s.personality ?? undefined,
+    personality: usePersona.getState().key ?? undefined,
   });
 }
 
@@ -146,7 +140,6 @@ export const useSession = create<SessionState>((set, get) => ({
   biographyLoaded: false,
   journal: null,
   errorMessage: null,
-  personality: null,
 
   start: async (personality) => {
     // Only a genuinely live session blocks a (re)start. We deliberately do NOT
@@ -167,8 +160,9 @@ export const useSession = create<SessionState>((set, get) => ({
       biographyLoaded: false,
       journal: null,
       errorMessage: null,
-      personality,
     });
+    // The leaf store is the source of truth for "who" — see personaStore.
+    usePersona.getState().setKey(personality);
     persistCurrent(get);
 
     // Reset per-session caches. chatStore clearing is the caller's responsibility
@@ -343,8 +337,8 @@ export const useSession = create<SessionState>((set, get) => ({
       biographyLoaded: false,
       journal: null,
       errorMessage: null,
-      personality: null,
     });
+    usePersona.getState().setKey(null);
     clearPersistedSession();
   },
 
@@ -371,8 +365,8 @@ export const useSession = create<SessionState>((set, get) => ({
         biographyLoaded: false, // bio loads lazily on next send if needed
         journal: persisted.journal,
         errorMessage: null,
-        personality,
       });
+      usePersona.getState().setKey(personality);
       startSessionPoll();
       console.log(
         `[session] hydrated active session from disk (${personality})`
@@ -388,8 +382,8 @@ export const useSession = create<SessionState>((set, get) => ({
         biographyLoaded: false,
         journal: persisted.journal,
         errorMessage: null,
-        personality,
       });
+      usePersona.getState().setKey(personality);
       console.log(
         `[session] hydrated ${persisted.status} state with drafted journal`
       );
@@ -397,27 +391,3 @@ export const useSession = create<SessionState>((set, get) => ({
   },
 }));
 
-/**
- * The companion Tim is talking to right now. Undefined outside a session —
- * callers that need an identity to make a network call should treat that as
- * "don't call", not "fall back to Eli".
- */
-export function activePersonality(): Personality | undefined {
-  const key = useSession.getState().personality;
-  return key ? getPersonality(key) : undefined;
-}
-
-/** Hook form of {@link activePersonality}, for components. */
-export function useActivePersonality(): Personality | undefined {
-  const key = useSession((s) => s.personality);
-  return key ? getPersonality(key) : undefined;
-}
-
-/**
- * The active companion's short name for UI copy ("Tell Jeff we're heading
- * out"). Falls back to "them" outside a session, which reads correctly in
- * every button label that uses it.
- */
-export function useCompanionName(): string {
-  return useActivePersonality()?.shortName ?? "them";
-}

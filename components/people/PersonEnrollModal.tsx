@@ -21,7 +21,7 @@ import {
   VOICE_RECORDING_PRESET,
 } from "@/services/audio";
 import { CONFIG } from "@/constants/config";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 
 interface Props {
   visible: boolean;

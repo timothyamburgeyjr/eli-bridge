@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 
 /**
  * Summary card emitted after Tim taps "📋 Brief Eli on N saved places".

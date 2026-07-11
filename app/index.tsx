@@ -31,7 +31,7 @@ import { PeopleRoster } from "@/components/people/PeopleRoster";
 import { PersonaAvatar } from "@/components/common/PersonaAvatar";
 import { PersonalityPicker } from "@/components/session/PersonalityPicker";
 import type { PersonalityKey } from "@/constants/personalities";
-import { useActivePersonality } from "@/session/SessionStore";
+import { useActivePersonality } from "@/stores/personaStore";
 import { ActivityPermissionBanner } from "@/components/common/ActivityPermissionBanner";
 import { SCENARIOS, getScenario, ScenarioId } from "@/data/scenarios";
 

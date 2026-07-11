@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 
 const MODES = ["🚗 Drove", "🚶 Walked", "🚴 Biked", "🚌 Bus", "🚇 Metro"];
 

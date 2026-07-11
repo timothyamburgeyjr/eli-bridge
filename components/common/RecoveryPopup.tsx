@@ -1,5 +1,5 @@
 import React from "react";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 import {
   Modal,
   View,

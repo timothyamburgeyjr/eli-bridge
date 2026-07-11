@@ -11,14 +11,14 @@ import {
 import { C } from "@/constants/theme";
 import { Pill } from "@/components/common/PillButton";
 import { PersonaAvatar } from "@/components/common/PersonaAvatar";
-import { useActivePersonality } from "@/session/SessionStore";
+import { useActivePersonality } from "@/stores/personaStore";
 import { getPersonality, type PersonalityKey } from "@/constants/personalities";
 import { FormattedBody } from "./FormattedBody";
 import type { MoodLabel } from "@/constants/moods";
 import { useAudio } from "@/stores/audioStore";
 import { PhotoLookupModal } from "./PhotoLookupModal";
 import { FORMAT_DIRECTIVE } from "@/services/kindroid";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 
 interface ContextPill {
   icon: string;

@@ -25,7 +25,7 @@ import { identifySpeaker } from "@/people/voiceId";
 import { identifyFaces, FaceMatch } from "@/people/faceId";
 import { usePeople, Person } from "@/people/PeopleStore";
 import { useCompanions } from "@/session/CompanionTracker";
-import { activePersonality } from "@/session/SessionStore";
+import { activePersonality } from "@/stores/personaStore";
 import { useMood } from "@/stores/moodStore";
 import { seedMood } from "@/session/moodHeuristic";
 import { useClarifications } from "@/stores/clarificationStore";

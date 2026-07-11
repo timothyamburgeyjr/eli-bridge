@@ -5,7 +5,7 @@ import { PersonaAvatar } from "@/components/common/PersonaAvatar";
 import { StatusIndicator } from "@/components/common/StatusIndicator";
 import { MoodBadge } from "@/components/mood/MoodBadge";
 import { MoodSheet } from "@/components/mood/MoodSheet";
-import { useActivePersonality } from "@/session/SessionStore";
+import { useActivePersonality } from "@/stores/personaStore";
 import { useMode } from "@/stores/modeStore";
 import { useConnection } from "@/stores/connectionStore";
 import { useChat } from "@/stores/chatStore";

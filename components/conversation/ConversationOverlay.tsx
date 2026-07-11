@@ -28,7 +28,7 @@ import {
 } from "@/services/audio";
 import { abortPipeline } from "@/session/abortPipeline";
 import { QuickMessagesPopup } from "@/components/chat/QuickMessagesPopup";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 
 const KEEP_AWAKE_TAG = "eli-bridge-conversation";
 

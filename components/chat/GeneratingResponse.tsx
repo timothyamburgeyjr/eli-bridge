@@ -9,7 +9,7 @@ import {
 import { C } from "@/constants/theme";
 import { useChat } from "@/stores/chatStore";
 import { useAudio } from "@/stores/audioStore";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 
 /**
  * "Generating response…" indicator that sits inside the chat scroll, above

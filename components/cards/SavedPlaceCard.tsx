@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, Pressable, StyleSheet } from "react-native";
 import { C } from "@/constants/theme";
 import { useChat } from "@/stores/chatStore";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 
 /**
  * Card that represents a place Tim saved via the "📍 Save place" picker.

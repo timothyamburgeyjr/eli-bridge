@@ -8,7 +8,7 @@ import {
   VOICE_RECORDING_PRESET,
 } from "@/services/audio";
 import { useChat } from "@/stores/chatStore";
-import { useCompanionName } from "@/session/SessionStore";
+import { useCompanionName } from "@/stores/personaStore";
 
 interface Props {
   /** Tap the 📍 pin → open the place-picker so Tim can attach a Save Place. */
