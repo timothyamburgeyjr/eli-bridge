@@ -26,6 +26,22 @@ import { identifyFaces, FaceMatch } from "@/people/faceId";
 import { usePeople, Person } from "@/people/PeopleStore";
 import { useCompanions } from "@/session/CompanionTracker";
 import { activePersonality } from "@/stores/personaStore";
+import {
+  getPersonality,
+  type Personality,
+  type PersonalityKey,
+} from "@/constants/personalities";
+import {
+  addressedMembers,
+  overhearingMembers,
+  roomMembers,
+  namedIn,
+} from "@/stores/roomStore";
+import {
+  packageTurn,
+  replyToPrior,
+  type PriorReply,
+} from "@/session/coordinator";
 import { useMood } from "@/stores/moodStore";
 import { seedMood } from "@/session/moodHeuristic";
 import { useClarifications } from "@/stores/clarificationStore";
@@ -250,6 +266,21 @@ function capitalize(s: string): string {
   return s.length === 0 ? s : s[0].toUpperCase() + s.slice(1);
 }
 
+/**
+ * Unique id for an AI bubble.
+ *
+ * `ai-${Date.now()}` was fine when exactly one companion could reply per turn.
+ * In a room, the overhearing kins are relayed CONCURRENTLY and land in the same
+ * millisecond — which collided on FlatList's keyExtractor (React drops the
+ * duplicate, so a reply just silently vanishes) and on the TTS cache key (the
+ * second bubble plays the first one's audio). A counter, not a random suffix:
+ * ids stay sortable and a collision is impossible rather than merely unlikely.
+ */
+let _aiSeq = 0;
+function aiMsgId(): string {
+  return `ai-${Date.now()}-${(_aiSeq++).toString(36)}`;
+}
+
 function timeString(d: Date = new Date()): string {
   const h = d.getHours();
   const m = d.getMinutes().toString().padStart(2, "0");
@@ -267,9 +298,19 @@ function buildHistory(messages: ChatItem[]): Content[] {
         parts: [{ text: `[TIM'S INPUT]\n${m.raw ?? m.dialog}` }],
       });
     } else if (m.from === "ai") {
+      const body = m.raw ?? (m.emote ? `_(*${m.emote}*)_ ${m.dialog}` : m.dialog);
+      // Name the speaker. Every AI turn is role:"model", so in a room the
+      // history would otherwise read to Gemini as one undifferentiated voice
+      // saying contradictory things — Bobby's gruffness and Daisy's quiet
+      // blurred into a single model that then writes the next emote in an
+      // average of the two. Solo sessions get the stamp too; naming the one
+      // speaker present costs nothing and keeps one code path.
+      const who = m.personality
+        ? getPersonality(m.personality as PersonalityKey).shortName
+        : null;
       history.push({
         role: "model",
-        parts: [{ text: m.raw ?? (m.emote ? `_(*${m.emote}*)_ ${m.dialog}` : m.dialog) }],
+        parts: [{ text: who ? `[${who}]\n${body}` : body }],
       });
     }
   }
@@ -1085,10 +1126,21 @@ export const useChat = create<ChatState>((set, get) => ({
         }
       }
 
-      const presentAnchor = buildPresentAnchor({
-        sensors: sensorsWithLabels,
-        companions: useCompanions.getState().companions,
-      });
+      // The anchor is per-recipient in a room: each companion has to be told who
+      // ELSE is on the bridge, and "everyone else" is a different list for each
+      // of them. Solo sessions pass no roomMates and get the anchor unchanged.
+      const anchorFor = (kin?: Personality): string | null =>
+        buildPresentAnchor({
+          sensors: sensorsWithLabels,
+          companions: useCompanions.getState().companions,
+          roomMates: kin
+            ? roomMembers()
+                .filter((p) => p.key !== kin.key)
+                .map((p) => p.shortName)
+            : [],
+        });
+
+      const presentAnchor = anchorFor();
       const outgoingPayload = presentAnchor
         ? `${presentAnchor}\n${finalRaw}`
         : finalRaw;
@@ -1212,6 +1264,170 @@ export const useChat = create<ChatState>((set, get) => ({
             ? 180_000
             : undefined; // undefined → kindroid service default (90s)
 
+      // ── Landing a reply ── shared by the solo path and the room relay, so a
+      // bubble looks and behaves identically however it arrived.
+      const landReply = (kin: Personality, raw: string): PriorReply => {
+        const parsed = parseAssembledMessage(raw);
+        const msg: ChatItem = {
+          id: aiMsgId(),
+          from: "ai",
+          time: timeString(),
+          emote: parsed.leadingEmote || undefined,
+          dialog: parsed.body || parsed.raw,
+          raw: parsed.raw,
+          // Stamped at creation so scrollback keeps the right face and color
+          // even after the session moves on to a different companion / mood.
+          personality: kin.key,
+          moodLabel: useMood.getState().label,
+        };
+        set({ messages: [...get().messages, msg] });
+
+        useTimeline.getState().append({
+          kind: "ai-replied",
+          icon: "💬",
+          level: "info",
+          subsystem: "kindroid",
+          label: `${kin.shortName} replied`,
+          detail: parsed.body
+            ? parsed.body.slice(0, 80) + (parsed.body.length > 80 ? "…" : "")
+            : undefined,
+          meta: {
+            reply: raw,
+            emote: parsed.leadingEmote || undefined,
+            charCount: raw.length,
+            personality: kin.key,
+          },
+        });
+
+        return replyToPrior(kin.shortName, parsed.raw);
+      };
+
+      const logSent = () => {
+        useTimeline.getState().append({
+          kind: "message-sent",
+          icon: "📤",
+          level: "info",
+          subsystem: "chat",
+          label: ambientPing
+            ? "Ambient ping sent"
+            : text
+            ? "Message sent"
+            : "Audio message sent",
+          detail:
+            attachments.length > 0
+              ? `${attachments.length} attachment${attachments.length === 1 ? "" : "s"}`
+              : undefined,
+          meta: {
+            outgoing: finalRaw,
+            charCount: finalRaw.length,
+            imageUrls,
+            attachmentKinds: attachments.map((a) => a.kind),
+            ambientPing,
+          },
+        });
+      };
+
+      // ── The room relay ──────────────────────────────────────────────
+      //
+      // Only runs when there are 2+ companions present. One companion takes the
+      // solo path below, byte for byte as it always has — the room cannot
+      // regress the case that has been in the field for months.
+      //
+      // Tim's words for this turn. `text` is what he typed; when he only spoke,
+      // Gemini's transcription (`safeBody`) IS his dialogue. Either way it is
+      // passed through verbatim and never rewritten — rule 6, his voice is law.
+      const timWords = ambientPing ? "" : text ? convertTimAsterisksToEmotes(text) : safeBody;
+
+      /** One hop: package for this kin → send → land the bubble. */
+      const relayToKin = async (
+        kin: Personality,
+        prior: PriorReply[],
+        addressedNames: string[],
+        reactOnly: boolean
+      ): Promise<PriorReply | null> => {
+        try {
+          const body = await packageTurn({
+            kin,
+            // `ambient` is Gemini's rendering of the sensors into lived texture —
+            // the world, this turn. Same for everyone; it does not scale with the
+            // room. Tim's words are passed separately because how they APPEAR
+            // depends on whether this kin was spoken to or merely overheard.
+            scene: ambient,
+            presentAnchor: anchorFor(kin),
+            dialogue: timWords,
+            prior,
+            addressedNames,
+            reactOnly,
+          });
+
+          const raw = await kindroidSend(body, kin.kindroidAiId, {
+            imageUrls,
+            timeoutMs: kindroidTimeoutMs,
+          });
+          if (isStaleGeneration(myGen)) return null;
+          return landReply(kin, raw);
+        } catch (err) {
+          if (isStaleGeneration(myGen)) return null;
+          // One companion failing must not take the room down with it — the
+          // others still have something to say, and a partial room reads far
+          // better than a dead one. Log it and move on. (The recovery popup is
+          // deliberately NOT used here: its Resubmit re-runs the whole step, and
+          // in a room that would re-send to the kins who already answered.)
+          console.warn(`[relay] ${kin.key} failed to reply`, err);
+          useTimeline.getState().append({
+            kind: "ai-replied",
+            icon: "⚠️",
+            level: "warn",
+            subsystem: "kindroid",
+            label: `${kin.shortName} didn't reply`,
+            detail: err instanceof Error ? err.message : String(err),
+            meta: { personality: kin.key },
+          });
+          return null;
+        }
+      };
+
+      const runRelay = async (): Promise<void> => {
+        const addressed = addressedMembers();
+        const overhearing = overhearingMembers();
+        const addressedNames = addressed.map((p) => p.shortName);
+
+        // Tim naming someone OUTRANKS any ordering we'd choose for him. Phase 3
+        // adds affinity-scored mic order; until then it's pick order, with a
+        // named companion pulled to the front.
+        const named = namedIn(timWords, addressed);
+        const speakers = named
+          ? [named, ...addressed.filter((p) => p.key !== named.key)]
+          : addressed;
+
+        set({ status: "sending", sendStartedAt: Date.now() });
+
+        // The addressed speak ONE AT A TIME, each hearing the last. The
+        // serialization is not an inefficiency to be optimized away — it is the
+        // entire feature. It is what lets Bobby have heard Eli.
+        const prior: PriorReply[] = [];
+        for (const kin of speakers) {
+          if (isStaleGeneration(myGen)) throw new HandledByRecovery();
+          const reply = await relayToKin(kin, prior, addressedNames, false);
+          if (reply) prior.push(reply);
+        }
+
+        // Everyone else overheard all of that. They react; they don't hold forth.
+        // Nothing here depends on anything else here, so they go together — which
+        // is why room size is cheap and only the ADDRESSED count is expensive.
+        if (overhearing.length > 0 && !isStaleGeneration(myGen)) {
+          await Promise.all(
+            overhearing.map((kin) =>
+              relayToKin(kin, prior, addressedNames, true)
+            )
+          );
+        }
+
+        set({ status: "idle", sendStartedAt: null });
+        useRecovery.getState().clear();
+        logSent();
+      };
+
       // ── Kindroid step ── relay to whoever Tim is talking to. Extracted into
       // a closure so the recovery popup can re-run JUST this step on transient
       // failure — without redoing the upload phase above. References itself as
@@ -1256,67 +1472,21 @@ export const useChat = create<ChatState>((set, get) => ({
         // after the chat has been visually reset.
         if (isStaleGeneration(myGen)) throw new HandledByRecovery();
 
-        const eliParsed = parseAssembledMessage(eliRaw);
-        const eliMsg: ChatItem = {
-          id: `ai-${Date.now()}`,
-          from: "ai",
-          time: timeString(),
-          emote: eliParsed.leadingEmote || undefined,
-          dialog: eliParsed.body || eliParsed.raw,
-          raw: eliParsed.raw,
-          // Stamped at creation so scrollback keeps the right face and color
-          // even after the session moves on to a different companion / mood.
-          personality: persona.key,
-          moodLabel: useMood.getState().label,
-        };
-        set({
-          messages: [...get().messages, eliMsg],
-          status: "idle",
-          sendStartedAt: null,
-        });
+        landReply(persona, eliRaw);
+        set({ status: "idle", sendStartedAt: null });
         // Success — clear any recovery popup state from a prior retry.
         useRecovery.getState().clear();
-
-        useTimeline.getState().append({
-          kind: "message-sent",
-          icon: "📤",
-          level: "info",
-          subsystem: "chat",
-          label: ambientPing
-            ? "Ambient ping sent"
-            : text
-            ? "Message sent"
-            : "Audio message sent",
-          detail:
-            attachments.length > 0
-              ? `${attachments.length} attachment${attachments.length === 1 ? "" : "s"}`
-              : undefined,
-          meta: {
-            outgoing: finalRaw,
-            charCount: finalRaw.length,
-            imageUrls,
-            attachmentKinds: attachments.map((a) => a.kind),
-            ambientPing,
-          },
-        });
-        useTimeline.getState().append({
-          kind: "ai-replied",
-          icon: "💬",
-          level: "info",
-          subsystem: "kindroid",
-          label: "Eli replied",
-          detail: eliParsed.body
-            ? eliParsed.body.slice(0, 80) + (eliParsed.body.length > 80 ? "…" : "")
-            : undefined,
-          meta: {
-            reply: eliRaw,
-            emote: eliParsed.leadingEmote || undefined,
-            charCount: eliRaw.length,
-          },
-        });
+        logSent();
       };
 
-      await deliverToKindroid();
+      // One companion → the path that has been in the field for months, byte for
+      // byte. Two or more → the relay. The room is additive; it does not rewrite
+      // the solo case, and it cannot regress it.
+      if (roomMembers().length >= 2) {
+        await runRelay();
+      } else {
+        await deliverToKindroid();
+      }
     } catch (err) {
       // A step already handed off to the recovery popup — it owns the
       // message now, nothing more for the outer catch to do.

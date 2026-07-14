@@ -981,6 +981,35 @@ function neutralFlash(): GenerativeModel {
   return _neutralFlash;
 }
 
+/**
+ * One Flash call with NO Bridge system prompt and NO persona block.
+ *
+ * Exposed so session/coordinator.ts can keep its prompts next to the verifier
+ * that checks their output — those two have to be read together to be understood,
+ * and splitting them across files is how the format contract drifts.
+ *
+ * Persona-free is the point, not an economy. The coordinator packages one turn
+ * for EACH member of the room, and `flash()` has exactly one companion's identity
+ * baked into its systemInstruction — using it would write every kin's message in
+ * whoever's persona happened to own the session.
+ */
+export async function neutralGenerate(
+  prompt: string,
+  opts: { deadlineMs: number; label: string; signal?: AbortSignal }
+): Promise<string> {
+  const result = await withDeadline(
+    withRetry(() =>
+      neutralFlash().generateContent({
+        contents: [{ role: "user", parts: [{ text: prompt }] }],
+      })
+    ),
+    opts.deadlineMs,
+    opts.label,
+    opts.signal
+  );
+  return result.response.text().trim();
+}
+
 export interface PersonContextInput {
   name: string;
   relationship?: string;

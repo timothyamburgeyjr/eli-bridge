@@ -20,6 +20,16 @@ import type { Companion } from "./CompanionTracker";
 export interface BuildPresentAnchorInput {
   sensors: SensorSnapshot;
   companions: Companion[];
+  /**
+   * The OTHER AI family members in the room — everyone present except the one
+   * this anchor is being written for. Short names, e.g. ["Bobby", "Daisy"].
+   *
+   * Empty (the default) means a solo session, and the anchor reads exactly as it
+   * always has. Note this is a different axis from `companions`, which is the
+   * flesh-and-blood people physically with Tim: Hank in the passenger seat is a
+   * companion, Bobby on the bridge is a roommate.
+   */
+  roomMates?: string[];
 }
 
 /**
@@ -31,6 +41,7 @@ export function buildPresentAnchor(input: BuildPresentAnchorInput): string | nul
   const companionsSentence = describeCompanions(input.companions);
   const placeSentence = describePlace(input.sensors);
   const activitySentence = describeActivity(input.sensors);
+  const roomSentence = describeRoom(input.roomMates ?? []);
 
   // First sentence is always present (we always know who Tim is with —
   // worst case it's just "with Tim"). The other two are optional and
@@ -42,9 +53,20 @@ export function buildPresentAnchor(input: BuildPresentAnchorInput): string | nul
     sentences[0] = `${companionsSentence} ${placeSentence}`;
   }
   if (activitySentence) sentences.push(activitySentence);
+  // Last, so it reads as the final beat: "...You are walking. Bobby and Daisy
+  // are here with you." Without this line a companion has no idea anyone else
+  // is on the bridge — there is no shared context between two Kindroid AIs, so
+  // if it isn't in the text, it didn't happen.
+  if (roomSentence) sentences.push(roomSentence);
 
   const text = sentences.join(" ");
   return `_(* PRESENT: ${text} *)_`;
+}
+
+function describeRoom(roomMates: string[]): string {
+  if (roomMates.length === 0) return "";
+  const verb = roomMates.length === 1 ? "is" : "are";
+  return `${joinNames(roomMates)} ${verb} here with you.`;
 }
 
 function describeCompanions(companions: Companion[]): string {

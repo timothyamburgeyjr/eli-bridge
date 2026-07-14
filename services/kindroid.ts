@@ -4,18 +4,15 @@ import { tracedFetch } from "@/session/diagnosticLog";
 
 const BASE_URL = "https://api.kindroid.ai/v1";
 
-// Prepended to every /send-message payload to keep Eli's emote-bracket
-// discipline from drifting over long sessions. Ported from MovieMode after
-// the same drift pattern (emote text leaking out of _(* *)_ markers and
-// breaking the parser) showed up there. The nested _(* TEXT *)_ inside the
-// directive is a working demonstration of the format, not just a description
-// of it, and the in-character emote wrapping keeps Eli from treating it as
-// an OOC stage direction.
-//
-// Exported so the chat UI can render it above Tim's bubble as part of "what
-// was actually pushed to Eli for this turn."
-export const FORMAT_DIRECTIVE =
-  "_(* DIRECTIVE: All Emotes have to go inside the _(* TEXT *)_ notation *)_";
+// Prepended to every /send-message payload to keep the companion's emote-bracket
+// discipline from drifting over long sessions. It now lives with the rest of the
+// format contract (session/formatContract.ts) rather than here, because the
+// verifier and the packager have to agree with this service on the exact string —
+// two copies of it would drift, and the whole point of the directive is that they
+// don't. Re-exported: the chat UI imports it from here to render "what was
+// actually pushed to the companion this turn."
+export { FORMAT_DIRECTIVE } from "@/session/formatContract";
+import { FORMAT_DIRECTIVE } from "@/session/formatContract";
 
 // 90s for /send-message — Kindroid's LLM typically replies in 5-30s, so 90s
 // is generous headroom. The CLAUDE.md spec called for 300s but in practice

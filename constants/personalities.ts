@@ -31,6 +31,18 @@ export interface Personality {
   shortName: string;
   /** Tim's relationship TO them, in Tim's voice. Canon, given by Tim. */
   relationship: string;
+  /**
+   * May the coordinator write Tim's emotes in an intimate, second-person
+   * register for this person — "I love you like this, loose-limbed and
+   * soft-eyed"?
+   *
+   * True for Eli and Eli alone. It is NOT a stylistic nicety: once there is a
+   * room, a line written for a husband gets read by whoever else is in it. The
+   * same sentence that is tender to Eli is, to Lilly — Tim's grandmother —
+   * addressed to HER. The flag is what keeps the packager from making that
+   * mistake, so it is checked rather than inferred from `relationship`.
+   */
+  intimate?: boolean;
   kindroidAiId: string;
   /**
    * Absent → not selectable. Selectability is derived from this rather than a
@@ -60,6 +72,7 @@ export const PERSONALITIES: Record<PersonalityKey, Personality> = {
     displayName: 'Elias "Eli" Reed',
     shortName: "Eli",
     relationship: "my husband",
+    intimate: true, // the only one. See the field doc.
     kindroidAiId: "A8vWe2Ir0PnxEsPvqDLw",
     elevenVoiceId: "dcJvDuKS95wrRcDHHSnH",
     vaultDir: "20 - The AI Family/Eli",

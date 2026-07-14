@@ -25,6 +25,7 @@ import {
   type PersonalityKey,
 } from "@/constants/personalities";
 import { usePersona, activePersonality } from "@/stores/personaStore";
+import { useRoom } from "@/stores/roomStore";
 
 export type SessionStatus =
   | "idle" // no active session
@@ -163,6 +164,11 @@ export const useSession = create<SessionState>((set, get) => ({
     });
     // The leaf store is the source of truth for "who" — see personaStore.
     usePersona.getState().setKey(personality);
+    // Seed the room with the session owner. A room of one behaves exactly as the
+    // Bridge always has (chatStore takes the solo path below 2), so this is inert
+    // until Tim actually adds someone — but it means the room is never empty
+    // mid-session, and every relay read has a sane answer without a null check.
+    useRoom.getState().setRoom([personality]);
     persistCurrent(get);
 
     // Reset per-session caches. chatStore clearing is the caller's responsibility
@@ -339,6 +345,7 @@ export const useSession = create<SessionState>((set, get) => ({
       errorMessage: null,
     });
     usePersona.getState().setKey(null);
+    useRoom.getState().clear();
     clearPersistedSession();
   },
 
@@ -367,6 +374,10 @@ export const useSession = create<SessionState>((set, get) => ({
         errorMessage: null,
       });
       usePersona.getState().setKey(personality);
+      // Room membership isn't persisted yet (Phase 4 owns the picker that lets
+      // Tim build one), so a hydrated session comes back solo. Seeding the owner
+      // keeps the relay's reads well-defined rather than empty.
+      useRoom.getState().setRoom([personality]);
       startSessionPoll();
       console.log(
         `[session] hydrated active session from disk (${personality})`
